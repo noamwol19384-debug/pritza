@@ -151,9 +151,16 @@ body.adlock #app,body.adlock #layer{pointer-events:none}
   padding:6px 8px calc(var(--safeB) + 6px);display:flex;max-width:480px;margin:0 auto}
 .nav button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;min-height:48px;
   font-size:var(--fs0);color:var(--dim);border-radius:10px}
-.nav button .ic{font-size:20px;line-height:1}
+.nav button .icw{position:relative;display:inline-block;width:24px;height:24px}
+.nav button svg{width:24px;height:24px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.nav button .lbl{line-height:1.1}
 .nav button.on{color:var(--amber)}
+.nav button.on svg{stroke-width:2.2}
 .nav button.new{color:var(--chalk)}
+/* the badge sits on the icon's corner and says what it is: a count, "new", or the gift */
+.navbadge{position:absolute;top:-7px;inset-inline-end:-12px;min-width:17px;height:17px;padding:0 5px;border-radius:999px;
+  background:var(--rose);color:#fff;font-size:10px;font-weight:800;line-height:17px;text-align:center;white-space:nowrap;box-shadow:0 0 0 2px rgba(11,16,32,.95)}
+.navbadge.gift{background:transparent;box-shadow:none;font-size:14px;top:-9px;inset-inline-end:-13px;animation:pulse 1.6s ease-in-out infinite}
 
 /* tabs */
 .tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
@@ -330,7 +337,16 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--sky);outline-off
   body::after{content:'';position:fixed;left:0;right:0;bottom:0;height:30vh;z-index:0;pointer-events:none;
     background:repeating-linear-gradient(90deg,rgba(255,255,255,.04) 0 60px,transparent 60px 120px),linear-gradient(180deg,transparent,rgba(0,0,0,.35))}
   #app{background:rgba(11,16,32,.92);border-inline:1px solid var(--line2);box-shadow:0 0 80px rgba(0,0,0,.6);min-height:100vh}
+  /* a match on a wide screen: the pitch on one side, the decision beside it, nothing below the fold */
+  body.vmatch #app{max-width:1000px;display:grid;grid-template-columns:minmax(0,1fr) 420px;grid-template-areas:"top top" "sb body" "mom body" "stage body" "rest body";
+    column-gap:20px;align-content:start}
+  body.vmatch .mtop{grid-area:top}
+  body.vmatch .sb{grid-area:sb}
+  body.vmatch .mom{grid-area:mom}
+  body.vmatch .stage{grid-area:stage;align-self:start;aspect-ratio:16/10}
+  body.vmatch #mbody{grid-area:body;min-width:0;margin-top:8px}
 }
+@media (min-width:1500px){body{zoom:1.2}}
 
 .ltr{direction:ltr;unicode-bidi:isolate;display:inline-block}
 /* phones: a taller pitch, the bottom of the screen is no longer empty between moments */
@@ -681,7 +697,8 @@ u_cont:{he:'מפעלים יבשתיים',en:'Continental cups'},u_nat:{he:'הנ�
 u_captain:{he:'קפטנות',en:'Captaincy'},u_legends:{he:'שיאי אגדות המועדון',en:'Club legend records'},
 u_skill:{he:'טבעת התזמון בבעיטות',en:'The timing bar on shots'},u_clock:{he:'שעון הקריירה',en:'Career clock'},u_farewell:{he:'עונת פרידה',en:'Farewell season'},
 /* nav */
-navHome:{he:'בית',en:'Home'},navPred:{he:'פרשן',en:'Pundit'},navComp:{he:'תחרויות',en:'Comps'},navMuseum:{he:'מוזיאון',en:'Museum'},navMore:{he:'עוד',en:'More'},
+navHome:{he:'בית',en:'Home'},navPred:{he:'פרשן',en:'Pundit'},navComp:{he:'תחרויות',en:'Comps'},navMuseum:{he:'מוזיאון',en:'Museum'},navMore:{he:'עוד',en:'More'},navNew:{he:'חדש',en:'new'},
+rivalYouWon:{he:'עונות שסיימת מעליו',en:'Seasons you finished above him'},rivalHeWon:{he:'עונות שהוא סיים מעליך',en:'Seasons he finished above you'},
 /* shop */
 life:{he:'החיים שלך',en:'Your life'},buy:{he:'לקנות',en:'Buy'},owned:{he:'בבעלותך',en:'Owned'},
 upkeep:{he:'אחזקה',en:'Upkeep'},income:{he:'הכנסה',en:'Income'},cantAfford:{he:'אין מספיק כסף',en:'Not enough money'},
@@ -6219,7 +6236,7 @@ var CLIP=(function(){
   }
   function resize(){
     if(!cv)return;
-    var r=cv.getBoundingClientRect();dpr=Math.min(2,window.devicePixelRatio||1);
+    var r=cv.getBoundingClientRect();var z=1;try{z=parseFloat(window.getComputedStyle(document.body).zoom)||1;}catch(e){}dpr=Math.min(2.5,(window.devicePixelRatio||1)*z);
     W=Math.max(200,r.width||340);H=Math.max(120,r.height||212);
     cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);c.setTransform(dpr,0,0,dpr,0,0);
   }
@@ -6516,6 +6533,7 @@ function setLang(l){
 function go(view,tab){
   saveScroll();
   if(V.sheet)V.sheet=null;
+  try{if(ST&&ST.meta&&ST.meta.seen&&!ST.meta.seen['nav_'+view])ST.meta.seen['nav_'+view]=1;}catch(e){}
   if(view!=='match')Platform.gameplayStop();
   V.view=view;if(tab)V.tab[view]=tab;
   render();window.scrollTo(0,0);
@@ -6532,6 +6550,7 @@ function render(){
   var html='';
   document.body.classList.toggle('reduce',!!(ST&&ST.opts.reduceMotion));
   document.body.classList.toggle('full',V.view==='match'||V.view==='pro'||V.view==='over');
+  document.body.classList.toggle('vmatch',V.view==='match');
   if(V.view==='match'&&V.match){renderMatch();return;}
   switch(V.view){
     case 'pro':html=viewPro();break;
@@ -6573,17 +6592,28 @@ function afterRender(){
   });});
 }
 
-/* ---------- nav: items appear as they unlock ---------- */
+/* ---------- nav: items appear as they unlock. One line-icon set (no emoji, the same on every phone),
+   and a badge only when it means something: the daily gift, how many predictions are still open, a tab you never opened. */
+var NAV_IC={
+  home:'<svg viewBox="0 0 24 24"><path d="M3.5 11.5 12 4l8.5 7.5"/><path d="M6 10v10h12V10"/><path d="M10 20v-6h4v6"/></svg>',
+  pred:'<svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="6.2"/><path d="M8.5 20.5h7M10 16.2v4.3M14 16.2v4.3M9.3 7.8a3.4 3.4 0 0 1 2.6-1.9"/></svg>',
+  comps:'<svg viewBox="0 0 24 24"><path d="M7.5 4h9v5.2a4.5 4.5 0 0 1-9 0z"/><path d="M7.5 6H4.5a3 3 0 0 0 3 3.6M16.5 6h3a3 3 0 0 1-3 3.6M12 13.7V17M8.5 20.5h7M9.5 17h5"/></svg>',
+  museum:'<svg viewBox="0 0 24 24"><path d="M3.5 9.5 12 4.5l8.5 5z"/><path d="M6 9.5v8M10 9.5v8M14 9.5v8M18 9.5v8M4 20.5h16"/></svg>',
+  more:'<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>'
+};
 function navBar(){
   var c=ST.career;
-  var items=[['home','⚽',t('navHome')],['pred','🔮',t('navPred')]];
-  if(c&&unlockedC(c,'comps'))items.push(['comps','🏆',t('navComp')]);
-  if(c&&unlockedC(c,'museum'))items.push(['museum','🏛',t('navMuseum')]);
-  items.push(['more','☰',t('navMore')]);
+  var items=[['home',t('navHome')],['pred',t('navPred')]];
+  if(c&&unlockedC(c,'comps'))items.push(['comps',t('navComp')]);
+  if(c&&unlockedC(c,'museum'))items.push(['museum',t('navMuseum')]);
+  items.push(['more',t('navMore')]);
   return '<nav class="nav">'+items.map(function(i){
-    var dot=(i[0]==='pred'&&predAttention())||(i[0]==='home'&&dailyReady(ST))||(!ST.meta.seen['nav_'+i[0]]&&['comps','museum'].indexOf(i[0])>=0);
-    return '<button data-a="nav" data-x="'+i[0]+'" class="'+(V.view===i[0]?'on':'')+'">'+
-      '<span class="ic">'+i[1]+'</span>'+esc(i[2])+(dot?'<span class="navdot"></span>':'')+'</button>';
+    var k=i[0],badge='',cls='';
+    if(k==='home'&&dailyReady(ST)){badge='🎁';cls='gift';}
+    else if(k==='pred'&&predAttention()){var open=roundMarkets(ST).filter(function(m){return !findPred(ST,m.key);}).length;badge=String(open);}
+    else if((k==='comps'||k==='museum')&&!ST.meta.seen['nav_'+k])badge=t('navNew');
+    return '<button data-a="nav" data-x="'+k+'" class="'+(V.view===k?'on':'')+'" aria-label="'+esc(i[1])+'">'+
+      '<span class="icw">'+NAV_IC[k]+(badge?'<span class="navbadge '+cls+'">'+esc(badge)+'</span>':'')+'</span><span class="lbl">'+esc(i[1])+'</span></button>';
   }).join('')+'</nav>';
 }
 function predAttention(){
@@ -7883,7 +7913,7 @@ SHEETS.rival=function(){
   return '<b>👤 '+esc(t('rivalCard'))+'</b><div class="sp12"></div>'+
     '<div class="row">'+crest(rv.clubId,'md')+'<div class="grow"><b>'+bidi(personN(rv))+'</b><div class="tiny muted">'+esc(posName(c.pd))+' · '+bidi(cl?clubName(cl,LANG):'')+'</div></div>'+
     '<div class="big-n" style="font-size:30px">'+rv.rating+'</div></div><div class="sp12"></div>'+
-    '<div class="cmp"><div class="v w">'+rv.won+'</div><div class="k">'+esc(t('seasonWon'))+'</div><div class="v">'+rv.lost+'</div></div>'+
+    '<div class="kv"><span>'+esc(t('rivalYouWon'))+'</span><b style="color:var(--mint)">'+rv.won+'</b></div><div class="kv"><span>'+esc(t('rivalHeWon'))+'</span><b>'+rv.lost+'</b></div>'+
     (rv.log.length?'<div class="sp12"></div><div class="scroll"><table><thead><tr><th></th><th>'+esc(t('rating'))+'</th><th>'+esc(t('apps'))+'</th><th>⚽</th><th>🅰</th></tr></thead><tbody>'+
       rv.log.slice(-8).reverse().map(function(x){return '<tr><td>'+x.y+'</td><td>'+x.r+'</td><td>'+x.ap+'</td><td>'+x.g+'</td><td>'+x.a+'</td></tr>';}).join('')+'</tbody></table></div>':'')+
     closeBtn();
@@ -7905,7 +7935,7 @@ SHEETS.club=function(id){
     (cl.hist.cont&&!cl.real?'<div class="kv"><span>'+esc(t('contTitles'))+'</span><b>🌍 '+cl.hist.cont+'</b></div>':'')+
     '<div class="sp12"></div><b class="small">🏛 '+esc(t('records'))+'</b>'+
     ['seasonGoals','goals','apps'].map(function(k){var r=rec[k];return '<div class="kv"><span>'+esc(recordLabel(k))+'</span><b>'+r.v+' <span class="tiny muted">'+bidi(personN(r))+' '+r.y+'</span></b></div>';}).join('')+
-    (cs?'<div class="sp12"></div><b class="small">'+esc(t('yourStats'))+'</b><div class="kv"><span>'+esc(t('apps'))+'</span><b>'+cs.apps+'</b></div><div class="kv"><span>'+esc(t('goals'))+' / '+esc(t('assists'))+'</span><b>'+cs.g+' / '+cs.a+'</b></div>':'')+
+    (cs?'<div class="sp12"></div><b class="small">'+esc(t('yourStats'))+'</b><div class="kv"><span>'+esc(t('apps'))+'</span><b>'+cs.apps+'</b></div><div class="kv"><span>'+esc(t('goals'))+' / '+esc(t('assists'))+'</span><b>'+ltr(cs.g+' / '+cs.a)+'</b></div>':'')+
     closeBtn();
 };
 SHEETS.country=function(){
