@@ -21,7 +21,7 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;margin:0;padding:0}
+html,body{height:100%;margin:0;padding:0;overscroll-behavior:contain}
 body{
   background:var(--ink); color:var(--chalk);
   font-family:var(--font);
@@ -80,6 +80,14 @@ bdi{unicode-bidi:isolate}
 .btn[disabled]{opacity:.42;pointer-events:none}
 /* rewarded-ad button: never green, video icon, same size as the plain continue button (portal rules) */
 .btn.reward{background:var(--raise);border-color:rgba(255,176,32,.6);color:var(--chalk)}
+/* a quiet pulse while the portal SDK settles before the first render (replaced by the first render) */
+.bootwait{width:28px;height:28px;margin:46vh auto 0;border-radius:50%;border:3px solid rgba(255,176,32,.35);border-top-color:var(--amber);animation:bootspin 1s linear infinite}
+@keyframes bootspin{to{transform:rotate(360deg)}}
+/* small text that is tappable gets a 32px touch box without moving the layout (inline padding) */
+a[data-a=terms],[data-a=club]{padding:9px 2px}
+label[for=pname]{display:inline-block;padding:8px 0}
+/* input locked from the ad request until the ad resolves */
+body.adlock #app,body.adlock #layer{pointer-events:none}
 .btnrow{display:flex;gap:8px}
 .btnrow>.btn{flex:1}
 .chip{display:inline-flex;align-items:center;gap:5px;background:var(--panel2);border:1px solid var(--line);
@@ -346,7 +354,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--sky);outline-off
   <input type="text" name="type"><input type="text" name="stars">
   <textarea name="message"></textarea><input type="email" name="email"><input type="text" name="version">
 </form>
-<div id="app"></div>
+<div id="app"><div class="bootwait" aria-hidden="true"></div></div>
 <div id="layer"></div>
 <script>
 /* ===== 00-flags.js ===== */
@@ -354,10 +362,14 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--sky);outline-off
    build.js rewrites these two lines. One code base, three builds:
    site    PORTAL=false REAL=false  predictions + betting skin behind 18+
    portal  PORTAL=true  REAL=false  no betting code, text or icons at all
-   private PORTAL=false REAL=true   real club names, never uploaded anywhere */
+   private PORTAL=false REAL=true   real club names, never uploaded anywhere
+   poki    PORTAL=true  POKI=true  portal build + Poki SDK first in <head>  (dist/poki/index.html)
+   cg      PORTAL=true  CG=true    portal build + CrazyGames SDK v3         (dist/crazygames/index.html) */
 var PORTAL=false;
 var REAL=false;
-var VERSION='2.1.0';
+var POKI=false;
+var CG=false;
+var VERSION='2.2.0';
 
 /* ===== 10-i18n.js ===== */
 /* ===== i18n ===== every string goes through t() ===== */
@@ -379,7 +391,7 @@ pro_won:{he:'זכיתם בגביע!',en:'You won the cup!'},
 pro_lost:{he:'הפסדתם בגמר. אבל הסקאוטים ראו משהו.',en:'You lost the final. But the scouts saw something.'},
 pro_scouts:{he:'הסקאוטים רשמו את השם שלך.',en:'The scouts wrote your name down.'},
 pro_next:{he:'המשחק הבא: ליגת הנוער',en:'Next: the youth league'},
-pro_declare:{he:'מה יקרה במשחק הבא? תגיד עכשיו.',en:'What happens next match? Call it now.'},
+pro_declare:{he:'מה יקרה במשחק הבא? תגיד עכשיו.',en:'What happens in the next match? Call it now.'},
 pro_predict_t:{he:'התחזית הראשונה שלך',en:'Your first prediction'},
 pro_predict_q:{he:'המשחק הגדול של הבוגרים הערב. מי ינצח?',en:'The big senior match is tonight. Who wins?'},
 pro_reveal:{he:'שריקת סיום בדרבי',en:'Full time in the derby'},
@@ -484,10 +496,10 @@ declWrong:{he:'טעית. −{n} XP',en:'Wrong call. −{n} XP'},
 chanceWas:{he:'הסיכוי היה {p}',en:'The chance was {p}'},
 gGoal:{he:'גוווול!',en:'GOAL!'},gAssist:{he:'בישול!',en:'ASSIST!'},gSave:{he:'הצלה!',en:'SAVE!'},gWon:{he:'חטיפה!',en:'WON IT!'},
 o_saved:{he:'השוער הציל',en:'The keeper saved it'},o_wide:{he:'החוצה',en:'Wide'},o_post:{he:'קורה!',en:'Off the post!'},
-o_intercept:{he:'נחטף בדרך',en:'Cut out'},o_teammiss:{he:'החבר החמיץ',en:'Your team-mate missed'},
+o_intercept:{he:'נחטף בדרך',en:'Cut out'},o_teammiss:{he:'חבר הקבוצה החמיץ',en:'Your team-mate missed'},
 o_beaten:{he:'הוא עבר אותך',en:'He got past you'},o_conceded:{he:'ספגתם',en:'They scored'},
 o_kept:{he:'שמרת על הכדור',en:'You kept the ball'},o_lost:{he:'איבדת את הכדור',en:'You lost the ball'},
-o_won:{he:'לקחת את הכדור',en:'You won the ball'},o_wideSave:{he:'החוצה. נשמתם',en:'Wide. Phew'},
+o_won:{he:'לקחת את הכדור',en:'You won the ball'},o_wideSave:{he:'החוצה. נשמתם לרווחה',en:'Wide. Phew'},
 matchRating:{he:'ציון',en:'Rating'},
 earned:{he:'בונוס משחק',en:'Match bonus'},
 coachSays:{he:'המאמן לפני המשחק',en:'The coach before the match'},
@@ -523,7 +535,8 @@ starting:{he:'אתה בהרכב',en:'You start'},
 onBench:{he:'אתה על הספסל',en:'You start on the bench'},
 xpGained:{he:'+{n} XP',en:'+{n} XP'},
 ratingUp:{he:'הדירוג עלה ל-{r}',en:'Your rating rose to {r}'},
-adDouble:{he:'🎬 פרסומת: +50% XP',en:'🎬 Watch an ad: +50% XP'},
+adDouble:{he:'🎬 לצפות בפרסומת: +50% XP',en:'🎬 Watch an ad: +50% XP'},
+freeBonus:{he:'🎁 בונוס: +50% XP',en:'🎁 Bonus: +50% XP'},
 adPaused:{he:'הפרסומת רצה. המשחק מושהה.',en:'Ad playing. The game is paused.'},
 /* sim summary */
 simTitle:{he:'בינתיים',en:'Meanwhile'},
@@ -547,7 +560,7 @@ askRisk:{he:'סיכוי שייסוגו: {p}',en:'Chance they walk away: {p}'},
 withdrew:{he:'הקבוצה נסוגה',en:'They walked away'},
 stay:{he:'להישאר',en:'Stay'},findNew:{he:'לחפש הצעות חדשות',en:'Look for new offers'},
 loanOffer:{he:'השאלה לעונה',en:'Season loan'},
-roleStar:{he:'כוכב הקבוצה',en:'Star of the team'},roleFirst:{he:'הרכב',en:'Starter'},roleRot:{he:'רוטציה',en:'Rotation'},
+roleStar:{he:'כוכב הקבוצה',en:'Star of the team'},roleFirst:{he:'שחקן הרכב',en:'Starter'},roleRot:{he:'רוטציה',en:'Rotation'},
 startApprox:{he:'סיכוי לפתוח ≈ {p}',en:'Chance to start ≈ {p}'},
 scoutOffer:{he:'עקבו אחריך כל העונה',en:'Scouted you all season'},
 prejoinOffer:{he:'סוכם מראש',en:'Agreed in advance'},
@@ -558,8 +571,8 @@ ratingChange:{he:'דירוג',en:'Rating'},
 declineAge:{he:'גיל ({pos}): −{n}',en:'Age ({pos}): −{n}'},
 declinePerf:{he:'מעט דקות או ציונים נמוכים: −{n}',en:'Few minutes or low ratings: −{n}'},
 rivalCmp:{he:'אתה מול {name}',en:'You vs {name}'},
-seasonWon:{he:'ניצחת את העונה',en:'You won the season'},
-seasonLost:{he:'הוא ניצח את העונה',en:'He won the season'},
+seasonWon:{he:'גברת עליו העונה',en:'You beat him this season'},
+seasonLost:{he:'הוא גבר עליך העונה',en:'He beat you this season'},
 contractFirst:{he:'חתמת על חוזה מקצועי ראשון',en:'You signed your first professional contract'},
 headlines:{he:'כותרות',en:'Headlines'},
 predSum:{he:'עין הפרשן העונה: {ok}/{n} · {pts} נק׳',en:'Pundit\'s Eye this season: {ok}/{n} · {pts} pts'},
@@ -567,7 +580,7 @@ promoted:{he:'עליתם ליגה!',en:'Promoted!'},relegated:{he:'ירדתם ל
 champion:{he:'אלופה',en:'Champions'},cupWinner:{he:'זוכת הגביע',en:'Cup winners'},
 academySeason:{he:'עונת אקדמיה',en:'Academy season'},
 youthStats:{he:'נוער: {ap} משחקים · {g} שערים · {a} בישולים',en:'Youth: {ap} matches · {g} goals · {a} assists'},
-tourStart:{he:'🏆 {name} מתחיל!',en:'🏆 The {name} begins!'},
+tourStart:{he:'🏆 יוצאים לדרך: {name}!',en:'🏆 The {name} begins!'},
 tourPlay:{he:'לשחק בטורניר',en:'Play the tournament'},
 tourAuto:{he:'סימולציה של הטורניר',en:'Simulate the tournament'},
 tourWon:{he:'אלופים!',en:'Champions!'},tourOut:{he:'נפסלתם',en:'Knocked out'},
@@ -674,7 +687,7 @@ life:{he:'החיים שלך',en:'Your life'},buy:{he:'לקנות',en:'Buy'},owne
 upkeep:{he:'אחזקה',en:'Upkeep'},income:{he:'הכנסה',en:'Income'},cantAfford:{he:'אין מספיק כסף',en:'Not enough money'},
 catHome:{he:'בתים',en:'Homes'},catCar:{he:'רכבים',en:'Cars'},catLux:{he:'יוקרה',en:'Luxury'},catStaff:{he:'צוות אישי',en:'Personal staff'},catInv:{he:'השקעות',en:'Investments'},
 /* table heads */
-pos:{he:'מקום',en:'Pos'},pld:{he:'מש',en:'P'},w:{he:'נ',en:'W'},dd:{he:'ת',en:'D'},l:{he:'ה',en:'L'},gd:{he:'הפרש',en:'GD'},pts:{he:'נק',en:'Pts'},
+pos:{he:'מקום',en:'Pos'},pld:{he:'מש׳',en:'P'},w:{he:'נ׳',en:'W'},dd:{he:'ת׳',en:'D'},l:{he:'ה׳',en:'L'},gd:{he:'הפרש',en:'GD'},pts:{he:'נק׳',en:'Pts'},
 league:{he:'ליגה',en:'League'},cup:{he:'גביע',en:'Cup'},cont:{he:'יבשתי',en:'Continental'},nationalTeam:{he:'נבחרת',en:'National team'},
 calledUp:{he:'אתה בסגל',en:'You are in the squad'},notCalled:{he:'עוד לא זומנת. צריך דירוג {n}.',en:'Not called up yet. You need rating {n}.'},
 natLocked:{he:'הנבחרת הבוגרת נפתחת בעונה 7',en:'The senior national team opens in season 7'},
@@ -1019,7 +1032,7 @@ var CONT_CUPS = {
               {id:'af2',he:'המגן האפריקני',en:'African Shield',tier:2}],
   AFC:       [{id:'as1',he:'גביע האלופות האסייתי',en:'Asian Champions Cup',tier:1},
               {id:'as2',he:'המגן האסייתי',en:'Asian Shield',tier:2}],
-  OFC:       [{id:'oc1',he:'גביע האלופות של האוקיינוס',en:'Pacific Champions Cup',tier:1}]
+  OFC:       [{id:'oc1',he:'גביע האלופות של האוקיינוס השקט',en:'Pacific Champions Cup',tier:1}]
 };
 
 var CONF_NAMES = {
@@ -1033,7 +1046,7 @@ var CONT_FINALS = {
   CONCACAF:{he:'גביע האומות הצפוני',en:'Northern Nations Trophy'},
   CAF:{he:'גביע האומות האפריקני',en:'African Nations Trophy'},
   AFC:{he:'גביע האומות האסייתי',en:'Asian Nations Trophy'},
-  OFC:{he:'גביע האומות של האוקיינוס',en:'Pacific Nations Trophy'}
+  OFC:{he:'גביע האומות של האוקיינוס השקט',en:'Pacific Nations Trophy'}
 };
 var WORLD_CUP_NAME={he:'הגביע העולמי',en:'Global Cup'};
 var YOUTH_CUP_NAME={he:'גביע הנוער',en:'Youth Cup'};
@@ -1584,7 +1597,7 @@ function newState(seed){
           shop:{owned:[],income:0},
           flags:{},seen:{},days:{first:'',last:'',n:0,sent:{}},
           prologue:{done:false},
-          stats:{careers:0,bestRating:0,bestTitles:0,bestScore:0}},
+          stats:{careers:0,bestRating:0,bestTitles:0,bestScore:0,km:0}},
     tut:{}
   };
 }
@@ -1700,6 +1713,16 @@ function startSeason(st){
   }
   S.ev=scheduleEvent(st);
   buildChapter(st);
+  if(!S.academy){
+    if(car.startTier==null)car.startTier=car.tier;
+    car.bestTier=Math.min(car.bestTier==null?9:car.bestTier,car.tier);
+    // the national squad is named: in or out, the papers notice
+    if(S.nat&&!S.nat.youth&&unlockedC(car,'nat')){
+      var nf=S.nat.fix&&S.nat.fix[0],oc=nf&&C_BY_CODE[nf.opp];
+      if(S.nat.called)storyEvent(st,'squadNamed',{called:true,slots:{opp:oc?{he:countryName(oc,'he'),en:countryName(oc,'en')}:null}});
+      else if(car.rating>=S.nat.need-8)storyEvent(st,'squadNamed',{called:false});
+    }
+  }
   return S;
 }
 /* a senior squad-mate who plays your position: the fight for a place has a face */
@@ -1991,7 +2014,7 @@ function leagueName(cc,tier){
   if(REAL){var rl=realLeagueName(cc,tier);if(rl)return rl;}
   var heT=DIV_WORDS.he[tier]||('ליגה '+(tier+1));
   var enT=(DIV_WORDS[fam]||DIV_WORDS.GEN)[tier]||('Division '+(tier+1));
-  return {he:heT+' '+c.he,en:enT+' · '+c.en};
+  return {he:heT+' · '+c.he,en:enT+' · '+c.en};
 }
 function cupOpponent(st,stage){
   var S=st.career.season,cup=S.cup;
@@ -2202,28 +2225,28 @@ function aerialP(rating,oppSt){return clamp(0.46+(rating-oppSt)*0.006,0.22,0.82)
 /* text banks — short, readable on a phone */
 var MOMENT_TEXT={
   chance:[{he:'אתה בתוך הרחבה, בלם רץ אליך',en:'You are in the box, a defender closes in'},
-          {he:'הכדור נופל לרגליך בקו ה-16',en:'The ball drops to you on the edge of the box'},
+          {he:'הכדור נופל לרגליך על קו ה-16',en:'The ball drops to you on the edge of the box'},
           {he:'פרצת לבד מול השוער',en:'You break clear, one on one'},
-          {he:'מתפרצת שניים על אחד',en:'A two-on-one break'}],
+          {he:'מתפרצת של שניים על אחד',en:'A two-on-one break'}],
   pass:[{he:'יש לך כדור באמצע, החלוץ רץ לעומק',en:'Ball in midfield, the striker runs in behind'},
-        {he:'כדור חופשי, יש מרחב בצד השני',en:'Free ball, space on the far side'}],
+        {he:'הכדור התגלגל אליך, ויש מרחב בצד השני',en:'Free ball, space on the far side'}],
   dribble:[{he:'מגן אחד בינך לבין הרחבה',en:'One defender between you and the box'},
-           {he:'קיבלת כדור בגב לשער',en:'You take the ball with your back to goal'}],
+           {he:'קיבלת את הכדור עם הגב לשער',en:'You take the ball with your back to goal'}],
   tackle:[{he:'הקשר שלהם מקבל כדור מולך',en:'Their midfielder receives in front of you'},
-          {he:'החלוץ שלהם חודר, אתה האחרון',en:'Their striker breaks through, you are the last man'},
-          {he:'הכנף שלהם מתפרץ על הקו שלך',en:'Their winger bursts down your side'},
-          {he:'בעיטה מקצה הרחבה, אתה בדרך',en:'A shot from the edge of the box, you are in the way'},
+          {he:'החלוץ שלהם פורץ, ואתה האחרון בהגנה',en:'Their striker breaks through, you are the last man'},
+          {he:'הכנף שלהם פורץ באגף שלך',en:'Their winger bursts down your side'},
+          {he:'בעיטה מקצה הרחבה, ואתה עומד בדרכה',en:'A shot from the edge of the box, you are in the way'},
           {he:'המגן שלהם מנסה לצאת עם הכדור',en:'Their defender tries to play out'}],
   counter:[{he:'מתפרצת נגדית, שלושה מול שניים',en:'Counter-attack, three against two'}],
-  aerial:[{he:'הרמה ארוכה באה לכיוונך',en:'A long ball comes your way'},
-          {he:'הרמה לרחבה, אתה בקרב הראשים',en:'A cross into the box, you go up for it'}],
-  cross:[{he:'עלית על הקו, הרחבה מלאה',en:'You get down the line, the box is full'},
+  aerial:[{he:'כדור ארוך מגיע לכיוונך',en:'A long ball comes your way'},
+          {he:'הרמה לרחבה, ואתה עולה לנגיחה',en:'A cross into the box, you go up for it'}],
+  cross:[{he:'פרצת באגף, והרחבה מלאה',en:'You get down the line, the box is full'},
          {he:'הגעת לקו הרוחב',en:'You reach the byline'}],
   setpiece:[{he:'קרן. עלית לרחבה שלהם',en:'Corner. You go up for it'}],
-  freekick:[{he:'בעיטה חופשית, 22 מטר',en:'Free kick, 22 metres out'}],
+  freekick:[{he:'בעיטה חופשית מ-22 מטר',en:'Free kick, 22 metres out'}],
   pentake:[{he:'פנדל! אתה ניגש לכדור',en:'Penalty! You step up'}],
   save:[{he:'בעיטה חזקה מתוך הרחבה',en:'A hard strike from inside the box'},
-        {he:'בעיטה מרחוק, הכדור מסתובב',en:'A long-range shot, swerving'}],
+        {he:'בעיטה מרחוק, והכדור מתעקל',en:'A long-range shot, swerving'}],
   gk1v1:[{he:'החלוץ שלהם לבד מולך',en:'Their striker is clean through on you'}],
   claim:[{he:'הרמה גבוהה לרחבה הקטנה',en:'A high ball into the six-yard box'}],
   gkpen:[{he:'פנדל נגדכם. אתה על הקו',en:'Penalty against you. You are on the line'}],
@@ -2294,13 +2317,13 @@ function buildMoments(st,M){
     }else if(type==='setpiece'){
       m.tpl='corner_att';
       m.opts.push({k:'head',p:clamp(sp*0.55+0.05,0.08,0.26),he:'לנגח לשער',en:'Head it at goal',res:'goal'});
-      m.opts.push({k:'flick',p:clamp(ap*0.45,0.04,0.22),he:'להאריך לעמוד הרחוק',en:'Flick it on to the far post',res:'assist'});
-      m.opts.push({k:'back',p:0.96,he:'לחזור אחורה להגנה',en:'Drop back and defend',res:'keep'});
+      m.opts.push({k:'flick',p:clamp(ap*0.45,0.04,0.22),he:'להאריך בנגיחה לעמוד הרחוק',en:'Flick it on to the far post',res:'assist'});
+      m.opts.push({k:'back',p:0.96,he:'לחזור להגנה',en:'Drop back and defend',res:'keep'});
     }else if(type==='freekick'){
       m.tpl='freekick';
       m.opts.push({k:'fk',p:clamp(sp*0.30,0.04,0.14),he:'לבעוט מעל החומה',en:'Curl it over the wall',res:'goal'});
       m.opts.push({k:'fkpass',p:clamp(ap*0.5,0.05,0.24),he:'להרים לרחבה',en:'Float it into the box',res:'assist'});
-      m.opts.push({k:'safe',p:0.95,he:'מסירה קצרה',en:'Play it short',res:'keep'});
+      m.opts.push({k:'safe',p:0.95,he:'למסור קצר',en:'Play it short',res:'keep'});
     }else if(type==='pentake'){
       m.tpl='pen_take';
       var kd=keeperSplit(r);m.hint=KEEPER_HINT[kd.hint];m.keeperDive=kd;
@@ -2312,23 +2335,23 @@ function buildMoments(st,M){
     }else if(type==='pass'){
       if(r()<pr.create+0.04){
         m.tpl='pass_through';
-        m.opts.push({k:'through',p:clamp(assistP(clamp(pp-0.04,0.24,0.72),M.myStBase,M.oppSt)+bondUp,0.08,0.58),he:'כדור עומק לחלוץ',en:'Through ball to the striker',res:'assist'});
-        m.opts.push({k:'safe',p:clamp(pp+0.30,0.6,0.97),he:'מסירה בטוחה אחורה',en:'Safe pass backwards',res:'keep'});
+        m.opts.push({k:'through',p:clamp(assistP(clamp(pp-0.04,0.24,0.72),M.myStBase,M.oppSt)+bondUp,0.08,0.58),he:'לשחרר כדור עומק לחלוץ',en:'Through ball to the striker',res:'assist'});
+        m.opts.push({k:'safe',p:clamp(pp+0.30,0.6,0.97),he:'למסור בבטחה אחורה',en:'Safe pass backwards',res:'keep'});
       }else{
         m.tpl='pass_switch';m.text=MOMENT_TEXT.pass[1];
         m.opts.push({k:'switch',p:clamp(ap*(0.22+pr.create*0.40),0.04,0.22),he:'כדור ארוך לריצה של הכנף',en:'Long ball into the winger\'s run',res:'assist'});
-        m.opts.push({k:'safe',p:clamp(pp+0.30,0.6,0.97),he:'מסירה קצרה',en:'Short pass',res:'keep'});
+        m.opts.push({k:'safe',p:clamp(pp+0.30,0.6,0.97),he:'למסור קצר',en:'Play a short pass',res:'keep'});
       }
-      if(pr.shotBonus>=0&&r()<0.34)m.opts.push({k:'long',p:clamp(sp*0.28,0.04,0.16),he:'בעיטה מרחוק',en:'Shot from distance',res:'goal'});
+      if(pr.shotBonus>=0&&r()<0.34)m.opts.push({k:'long',p:clamp(sp*0.28,0.04,0.16),he:'לבעוט מרחוק',en:'Shoot from distance',res:'goal'});
     }else if(type==='cross'){
       var cb=r()<0.4;m.tpl=cb?'cutback':'cross_flank';m.text=MOMENT_TEXT.cross[cb?1:0];
       if(cb){
-        m.opts.push({k:'cutback',p:clamp(ap*0.95,0.08,0.42),he:'להחזיר לאחור לנקודת הפנדל',en:'Cut it back to the penalty spot',res:'assist'});
-        m.opts.push({k:'near',p:clamp(sp*0.38,0.05,0.22),he:'לבעוט לקורה הקרובה',en:'Shoot at the near post',res:'goal'});
+        m.opts.push({k:'cutback',p:clamp(ap*0.95,0.08,0.42),he:'להחזיר כדור לנקודת הפנדל',en:'Cut it back to the penalty spot',res:'assist'});
+        m.opts.push({k:'near',p:clamp(sp*0.38,0.05,0.22),he:'לבעוט לעמוד הקרוב',en:'Shoot at the near post',res:'goal'});
       }else{
         m.opts.push({k:'cross',p:clamp(ap*0.80,0.06,0.38),he:'להרים לעמוד הרחוק',en:'Cross to the far post',res:'assist'});
         m.opts.push({k:'cut',p:clamp(dp-0.06,0.2,0.8),he:'לחתוך פנימה',en:'Cut inside',res:'keep'});
-        m.opts.push({k:'shot',p:clamp(sp*0.45,0.06,0.28),he:'לבעוט מזווית',en:'Shoot from the angle',res:'goal'});
+        m.opts.push({k:'shot',p:clamp(sp*0.45,0.06,0.28),he:'לבעוט מזווית חדה',en:'Shoot from a tight angle',res:'goal'});
       }
       if(pr.shotBonus<0)m.opts.push({k:'safe',p:0.94,he:'למסור אחורה ולהישאר מאחור',en:'Lay it back and hold position',res:'keep'});
     }else if(type==='dribble'){
@@ -2336,13 +2359,13 @@ function buildMoments(st,M){
       m.tpl=back?'dribble_back':'dribble_1v1';m.text=MOMENT_TEXT.dribble[back?1:0];
       m.opts.push({k:back?'turn':'dribble',p:back?clamp(dp-0.05,0.2,0.8):dp,he:back?'להסתובב עם הכדור':'לעבור אותו בכדרור',en:back?'Turn with the ball':'Take him on',res:'keep'});
       if(pr.shotBonus>-0.5)m.opts.push({k:'shot',p:clamp(sp*0.48,0.06,0.30),he:'לבעוט מיד',en:'Shoot right away',res:'goal'});
-      else m.opts.push({k:'through',p:clamp(ap*(0.18+pr.create*0.3),0.04,0.16),he:'כדור עומק לחלוץ',en:'Through ball to the striker',res:'assist'});
+      else m.opts.push({k:'through',p:clamp(ap*(0.18+pr.create*0.3),0.04,0.16),he:'לשחרר כדור עומק לחלוץ',en:'Through ball to the striker',res:'assist'});
       m.opts.push({k:'layoff',p:clamp(dp+0.28,0.6,0.97),he:'למסור ולהמשיך לרוץ',en:'Lay it off and run',res:'keep'});
     }else if(type==='aerial'){
       if(pr.shotBonus>=0.05){
         m.tpl='aerial_att';m.text=MOMENT_TEXT.aerial[1];
         m.opts.push({k:'head',p:clamp(sp*0.45,0.07,0.30),he:'לנגח לשער',en:'Head it at goal',res:'goal'});
-        m.opts.push({k:'hold',p:clamp(aerialP(car.rating,M.oppSt),0.2,0.85),he:'להוריד לחבר',en:'Knock it down for a team-mate',res:'keep'});
+        m.opts.push({k:'hold',p:clamp(aerialP(car.rating,M.oppSt),0.2,0.85),he:'להוריד בראש לחבר',en:'Knock it down for a team-mate',res:'keep'});
       }else{
         m.tpl='aerial_def';m.text=MOMENT_TEXT.aerial[0];
         m.opts.push({k:'clear',p:aerialP(car.rating,M.oppSt),he:'לנגח את הכדור החוצה',en:'Head it clear',res:'stop'});
@@ -2359,12 +2382,12 @@ function buildMoments(st,M){
       m.tpl=['tackle_mid','tackle_last','tackle_wing','block_shot','press'][tv];
       if(tv===3){
         m.opts.push({k:'block',p:clamp(dp+0.02,0.25,0.86),he:'לזרוק את הגוף לחסימה',en:'Throw your body in the way',res:'stop'});
-        m.opts.push({k:'angle',p:clamp(dp+0.16,0.45,0.94),he:'לסגור זווית ולתת לשוער',en:'Close the angle, leave it to the keeper',res:'delay'});
+        m.opts.push({k:'angle',p:clamp(dp+0.16,0.45,0.94),he:'לסגור זווית ולהשאיר לשוער',en:'Close the angle, leave it to the keeper',res:'delay'});
       }else if(tv===4){
         m.opts.push({k:'press',p:clamp(dp-0.10,0.18,0.7),he:'ללחוץ ולגנוב את הכדור',en:'Press and win it back',res:'stop'});
         m.opts.push({k:'cover',p:clamp(dp+0.25,0.55,0.96),he:'לסגור את קו המסירה',en:'Cut off the passing lane',res:'delay'});
       }else{
-        m.opts.push({k:tv===1?'slide':'tackle',p:clamp(dp-(tv===1?0.08:0.04),0.2,0.84),he:tv===1?'תיקול גלישה אחרון':'להיכנס לחטיפה',en:tv===1?'Last-ditch slide tackle':'Go for the tackle',res:'stop'});
+        m.opts.push({k:tv===1?'slide':'tackle',p:clamp(dp-(tv===1?0.08:0.04),0.2,0.84),he:tv===1?'להיכנס בגלישה של הרגע האחרון':'להיכנס לחטיפה',en:tv===1?'Last-ditch slide tackle':'Go for the tackle',res:'stop'});
         m.opts.push({k:'contain',p:clamp(dp+0.22,0.55,0.95),he:'להישאר על הרגליים ולעכב',en:'Stay on your feet and delay',res:'delay'});
       }
     }else if(type==='counter'){
@@ -2429,8 +2452,8 @@ function buildMatch(st,f,opts){
   var mine=myClub(st);
   if(info.kind==='nat'){
     var my=C_BY_CODE[car.nat||car.cc],op=C_BY_CODE[info.oppNat];
-    M.myName={he:(info.youth?'נוער ':'')+my.he,en:my.en+(info.youth?' U21':'')};
-    M.oppName={he:(info.youth?'נוער ':'')+op.he,en:op.en+(info.youth?' U21':'')};
+    M.myName={he:my.he+(info.youth?' עד 21':''),en:my.en+(info.youth?' U21':'')};
+    M.oppName={he:op.he+(info.youth?' עד 21':''),en:op.en+(info.youth?' U21':'')};
     M.myColor='#2F6FE0';M.oppColor='#E23B3B';M.myColor2='#FFFFFF';M.oppColor2='#FFFFFF';
     M.myStBase=natStrength(st,my.code,car)-(info.youth?14:0);M.oppSt=natStrength(st,info.oppNat,null)-(info.youth?14:0);
     M.myCode=my.code;M.oppCode=op.code;
@@ -2667,6 +2690,7 @@ function applyMatch(st,M,manual){
     car.totals.apps++;S.stats.apps++;S.stats.sumScore+=M.my.score;
     if(M.starter){S.stats.starts++;car.totals.starts++;}else S.stats.subs++;
     car.totals.goals+=M.my.g;car.totals.assists+=M.my.a;
+    if(M.my.g>0&&car.totals.goals===M.my.g)storyEvent(st,'firstGoal',{g:M.my.g});
     S.stats.goals+=M.my.g;S.stats.assists+=M.my.a;
     if(M.f.t==='league'||M.f.t==='debut'){S.stats.lgGoals+=M.my.g;S.stats.lgApps++;}
     if(M.mom){S.stats.mom++;car.totals.mom++;}
@@ -2675,7 +2699,8 @@ function applyMatch(st,M,manual){
     car.totals.tackles+=M.my.tk;car.totals.saves+=M.my.sv;
     if(M.my.cs&&M.starter)car.totals.cleanSheets++;
     if(M.info.kind==='nat'){
-      if(M.info.youth)car.totals.youthCaps++;else{car.totals.caps++;car.totals.natGoals+=M.my.g;}
+      if(M.info.youth)car.totals.youthCaps++;else{car.totals.caps++;car.totals.natGoals+=M.my.g;
+        if(car.totals.caps===1)storyEvent(st,'firstCap',{sub:!M.starter,slots:{opp:M.oppName?{he:tl_(M.oppName,'he'),en:tl_(M.oppName,'en')}:null}});}
     }else{
       var cs_=car.clubStats[car.clubId]||(car.clubStats[car.clubId]={apps:0,g:0,a:0,cs:0,seasons:0});
       cs_.apps++;cs_.g+=M.my.g;cs_.a+=M.my.a;if(M.my.cs&&M.starter)cs_.cs++;
@@ -2699,8 +2724,10 @@ function applyMatch(st,M,manual){
     var risk=0.052*(1+(100-car.energy)/120)*card(car).inj*(hasEff(st,'injury')?0.8:1);
     if(M.rng()<risk){
       var x=M.rng(),w=x<0.72?1:(x<0.93?ri(M.rng,2,3):ri(M.rng,4,6));
-      car.injury={w:w,type:ri(M.rng,0,INJ_TYPES.length-1)};S.stats.inj++;
+      car.injury={w:w,w0:w,type:ri(M.rng,0,INJ_TYPES.length-1)};S.stats.inj++;S.stats.injW=(S.stats.injW||0)+w;
+      if(w>=4)car.totals.longInj=(car.totals.longInj||0)+1;
       M.injured={w:w,type:car.injury.type};   // a copy: recovery ticks the live one down
+      if(w>=3)storyEvent(st,'injury',{weeks:w*2,slots:{w:w}});
     }
   }
   coachGoalProgress(st,M);
@@ -2708,6 +2735,8 @@ function applyMatch(st,M,manual){
   noteTraits(st,M);
   noteHighlights(st,M);
   if(!youth&&car.debutAge==null)car.debutAge=car.age;
+  if(!youth&&car.totals.apps===1&&!storyEvent(st,'debut',{g:M.my.g,sub:!M.starter,min:M.onMin||0}))pushNews(st,'debut',{age:car.age});
+  if(M.key==='cupfinal'||M.key==='contfinal'){car.totals.finals=(car.totals.finals||0)+1;if(!M.win)car.totals.finalsLost=(car.totals.finalsLost||0)+1;}
   if(car.rating>=car.peak)car.peakAge=car.age;
   if(M.injured)car.totals.inj=(car.totals.inj||0)+1;
   if(M.decl&&M.decl.n){
@@ -2716,6 +2745,7 @@ function applyMatch(st,M,manual){
   S.results.push({t:M.f.t,s:M.score.join('-'),g:M.my.g,a:M.my.a,sc:M.my.score,w:M.win,d:M.draw});
   addMilestones(st,M);
   checkRecords(st,M);
+  storyAfterKey(st,M);
   return {ratingUp:up,before:before};
 }
 /* the season's best moments: scored by what happened, how late, how big the match and how long the odds */
@@ -2809,7 +2839,6 @@ function afterFixture(st,M){
     simLeagueRound(st,f.round,true);
     S.lgRound=f.round+1;
     settlePredictionsUpTo(st,S.lgRound);
-    if(M.played)pushNews(st,'debut',{age:car.age});
   }else if(f.t==='cup'){
     var cup=S.cup;
     if(mineG>oppG||(mineG===oppG&&M.rng()<0.5)){f.won=true;advanceCupRound(st,true,M.info.oppId);}
@@ -2861,8 +2890,9 @@ function setNextContKO(st,from){
 }
 function addTitle(st,name,kind){
   var car=st.career;
-  car.totals.titles++;
+  car.totals.titles++;car.lastTitleYear=car.year;
   var cl=clubById(car.clubId);
+  if(kind==='league')storyEvent(st,'title',{slots:{league:name}});
   st.meta.museum.trophies.push({n:name,k:kind,y:car.season?car.season.year:car.year,club:cl?{he:cl.nameHe,en:cl.name}:null,career:st.meta.stats.careers});
   bumpMile(st,'titles',1);
 }
@@ -2896,7 +2926,9 @@ function recover(st){
   var car=st.career;
   // the body bounces back faster the more tired it is: a regular settles around 60-70, recovery training keeps it high
   car.energy=clamp(Math.round(car.energy+6+(100-car.energy)*0.2+ri(rngFor(st.seed+':rec:'+car.totals.apps+':'+car.season.fi),-2,2)+(car.train===2?3:0)),0,100);
-  if(car.injury&&car.injury.w>0){car.injury.w--;if(car.injury.w<=0&&!car.injury.ret)car.injury=null;}
+  if(car.injury&&car.injury.w>0){car.injury.w--;
+    if(car.injury.w<=0&&!car.injury.ret){var w0=car.injury.w0||1;car.injury=null;
+      if(w0>=3){car.returned={w:w0,fi:car.season.fi,year:car.year};storyEvent(st,'return',{weeksOut:w0*2,slots:{wo:w0}});}}}
 }
 
 /* ---------- the fast track: simulate up to the next key match ----------
@@ -2963,6 +2995,8 @@ function endSeason(st){
   var world=simWorldSeason(st);car.lastWorld=world;
   updateNatRatings(st,world);
   var moved=applyPromotion(st);
+  if(moved==='up'){car.totals.promos=(car.totals.promos||0)+1;storyEvent(st,'promoted',{slots:{league2:leagueName(car.cc,car.tier)}});}
+  else if(moved==='down'){car.totals.relegs=(car.totals.relegs||0)+1;storyEvent(st,'relegated',{loyal:(car.clubStats[car.clubId]||{}).seasons>=3});}
   var cl=myClub(st);
   var card_={y:S.year,r:car.rating,club:{he:cl.nameHe,en:cl.name},cid:cl.id,g:S.academy?S.stats.yGoals:S.stats.goals,
              a:S.academy?S.stats.yAssists:S.stats.assists,ap:played,pos:pos,ac:S.academy,pd:car.pd,
@@ -3014,6 +3048,9 @@ function endSeason(st){
   car.lastSummary=summary;
   car.offers=unlockedC(car,'transfers')||seasonNo(car)>=UNLOCK_AT.transfers?makeOffers(st,summary):[];
   car.contSpot=contSpotFor(st,pos,S);
+  car.lastInjW=S.stats.injW||0;
+  noteSeasonTraits(st);
+  if(!S.academy&&!car.regularDone&&S.stats.starts>=Math.round(chTotalRounds(st)*0.6)){car.regularDone=true;storyEvent(st,'becameRegular');}
   summary.chapter=chapterEnd(st,summary);
   summary.best=S.best||[];
   if(car.captain)car.wasCaptain=true;
@@ -3290,6 +3327,9 @@ function signOffer(st,offer){
   var oldP=partnerOf(st),oldBond=Math.round(car.bond||0);
   if(oldBond>=50)pushNews(st,'partner',{why:'left',he:oldP.he,en:oldP.en,bond:oldBond});
   car.partnerN=(car.partnerN||0)+1;car.bond=15;
+  var foreignBefore=careerClubs(car).some(function(id){var c2=clubById(id);return c2&&c2.cc!==(car.nat||car.cc);});
+  storyEvent(st,'transfer',{abroad:cl.cc!==(car.nat||car.cc),firstAbroad:cl.cc!==(car.nat||car.cc)&&!foreignBefore,loan:!!offer.loan,
+    mood:(car.clubStats[car.clubId]||{}).seasons>=3?'grateful':'sad',slots:{club2:{he:clubName(cl,'he'),en:clubName(cl,'en')},years:offer.yrs}});
   if(offer.loan){car.loanFrom=car.clubId;car.loanContract=car.contract;}
   else{car.loanFrom=null;car.loanContract=null;}
   car.clubId=cl.id;car.cc=cl.cc;car.tier=effTier(cl);
@@ -3334,7 +3374,7 @@ function maybeInterest(st){
   S.interest={clubs:pool.slice(0,n).map(function(cl){
     return {cid:cl.id,avg:clamp(round1(avg+0.1),6.6,7.7),apps:Math.max(6,Math.round((L.rounds.length-S.lgRound)*0.45))};
   }),from:{apps:S.stats.apps,sum:S.stats.sumScore}};
-  if(n)pushNews(st,'scouts',{n:n,cid:S.interest.clubs[0].cid});
+  if(n&&!storyEvent(st,'rumour',{window:true,interest:n}))pushNews(st,'scouts',{n:n,cid:S.interest.clubs[0].cid});
 }
 function interestStatus(st){
   var S=st.career.season,I=S&&S.interest;if(!I)return [];
@@ -3351,7 +3391,9 @@ function retireWindow(car){return RETIRE[car.pd]||[32,34];}
 function canRetire(st){return st.career.age>=retireWindow(st.career)[0];}
 function mustRetire(st){var c=st.career,w=retireWindow(c);return c.age>=w[1]||(c.age>=w[0]&&c.rating<56)||(c.farewellDone);}
 function retire(st){
-  var car=st.career;car.retired=true;
+  var car=st.career;
+  storyEvent(st,'farewell',{phase:'end'});
+  car.retired=true;
   car.peak=Math.max(car.peak||0,car.rating);
   var score=careerScore(car);
   var lp=Math.round(car.peak*2+car.totals.titles*8+car.totals.goals*0.5+car.totals.caps*0.6+car.totals.seasons*3+score/40);
@@ -3505,9 +3547,9 @@ function fill(s,p){if(p)for(var k in p)s=s.replace(new RegExp('\\{'+k+'\\}','g')
 
 var EVENTS=[
   {id:'abroad',min:19,max:30,need:'transfers',
-   t:{he:'{club} מ{country} רוצה אותך כבר עכשיו. הסוכן שלהם מחכה לתשובה.',en:'{club} from {country} want you now. Their agent is waiting for an answer.'},
+   t:{he:'{club} מ{country} רוצה אותך כבר עכשיו. המנהל המקצועי שלהם מחכה לתשובה.',en:'{club} from {country} want you now. Their sporting director is waiting for an answer.'},
    o:[{he:'להסכים לעבור בסוף העונה',en:'Agree to join at the end of the season',p:1,k:'prejoin'},
-      {he:'להשתמש בזה כדי לבקש העלאה',en:'Use it to ask your club for a raise',p:0.55,k:'raise'},
+      {he:'לנצל את זה כדי לבקש העלאה בשכר',en:'Use it to ask your club for a raise',p:0.55,k:'raise'},
       {he:'להתעלם',en:'Ignore it',p:1,k:'ignore'}]},
   {id:'coachfight',min:18,max:36,
    t:{he:'ריב עם המאמן אחרי שהוחלפת. כל חדר ההלבשה שמע.',en:'A row with the coach after he subbed you off. The whole dressing room heard it.'},
@@ -3525,19 +3567,19 @@ var EVENTS=[
       {he:'לסרב בנימוס',en:'Politely decline',p:1,k:'decline'},
       {he:'להתעלם',en:'Ignore it',p:1,k:'ignore'}]},
   {id:'position',min:18,max:30,
-   t:{he:'המאמן רוצה להזיז אותך ל{newpos}. "שם אני צריך אותך."',en:'The coach wants to move you to {newpos}. "That is where I need you."'},
+   t:{he:'המאמן רוצה להעביר אותך ל{newpos}. "שם אני צריך אותך."',en:'The coach wants you in a new position: {newpos}. "That is where I need you."'},
    o:[{he:'להסכים לעמדה החדשה',en:'Accept the new position',p:1,k:'accept'},
       {he:'לסרב',en:'Refuse',p:1,k:'refuse'},
       {he:'להתעלם (להישאר בעמדה)',en:'Ignore it (keep your position)',p:1,k:'ignore'}]},
   {id:'mentor',min:17,max:21,
-   t:{he:'{name}, הוותיק של הקבוצה, מציע לך אימוני תוספת אחרי כל אימון.',en:'{name}, the team veteran, offers you extra sessions after training.'},
+   t:{he:'{name}, הוותיק של הקבוצה, מציע להתאמן איתך אחרי כל אימון.',en:'{name}, the team veteran, offers you extra sessions after training.'},
    o:[{he:'להסכים: +12% התקדמות העונה, פחות אנרגיה',en:'Accept: +12% progress this season, less energy',p:1,k:'accept'},
       {he:'לוותר',en:'Pass',p:1,k:'decline'},
       {he:'להתעלם',en:'Ignore it',p:1,k:'ignore'}]},
   {id:'media',min:18,max:37,
    t:{he:'{media}',en:'{media}'},
    o:[{he:'לענות במסיבת עיתונאים',en:'Answer at the press conference',p:0.5,k:'answer'},
-      {he:'לתת לכדורגל לדבר',en:'Let your football do the talking',p:1,k:'quiet'},
+      {he:'לתת למגרש לדבר',en:'Let your football do the talking',p:1,k:'quiet'},
       {he:'להתעלם',en:'Ignore it',p:1,k:'ignore'}]},
   {id:'agent',min:20,max:33,
    t:{he:'סוכן מפורסם רוצה לייצג אותך. הוא לוקח 5% מכל מה שתרוויח.',en:'A famous agent wants to represent you. He takes 5% of everything you earn.'},
@@ -3587,20 +3629,27 @@ function scheduleEvent(st){
   var r=rngFor(st.seed+':ev:'+car.year+':'+car.seed);
   if(r()>0.68)return null;
   var pool=EVENTS.filter(function(e){return eventEligible(st,e);});
-  if(!pool.length)return null;
-  var e=pool[Math.floor(r()*pool.length)];
+  // the bank's events join the pool once their conditions hold (the scheduled kind; reactive ones fire after what they react to)
+  var ctx=storyCtx(st),bank=[];BANK.events.forEach(function(e){if(!bankEventReactiveKind(e)&&bankEventEligible(st,e,ctx))bank.push(e);});
+  var all=pool.concat(bank);
+  if(!all.length)return null;
+  var e=all[Math.floor(r()*all.length)];
   var n=S.fix.length;
-  return {id:e.id,at:Math.floor(n*(0.25+r()*0.5)),done:false};
+  return {id:e.id,at:Math.floor(n*(0.25+r()*0.5)),done:false,bank:bank.indexOf(e)>=0||undefined};
 }
 function eventDue(st){
   var S=st.career.season,ev=S&&S.ev;
   if(!ev||ev.done||S.fi<ev.at)return false;
-  if(!eventEligible(st,EV_BY_ID[ev.id])&&!ev.shown){ev.done=true;ev.skipped=true;return false;}
+  var def=EV_BY_ID[ev.id];
+  if(def&&!eventEligible(st,def)&&!ev.shown){ev.done=true;ev.skipped=true;return false;}
+  if(!def&&!bankEventById(ev.id)){ev.done=true;ev.skipped=true;return false;}
   return true;
 }
 /* text for the event card, with the real names and numbers filled in */
 function eventView(st){
-  var car=st.career,S=car.season,ev=S.ev,e=EV_BY_ID[ev.id],r=rngFor(st.seed+':evv:'+car.year);
+  var car=st.career,S=car.season,ev=S.ev;
+  if(ev.bank){ev.shown=true;return bankEventView(st,bankEventById(ev.id));}
+  var e=EV_BY_ID[ev.id],r=rngFor(st.seed+':evv:'+car.year);
   var p={};
   if(e.id==='abroad'){
     if(!ev.cid){
@@ -3622,6 +3671,7 @@ function eventView(st){
 function sponsorMoney(car){return Math.max(20000,Math.round((car.contract?car.contract.wage:5000)*12));}
 /* the press reacts to the numbers, not to a mood */
 function mediaLine(st){
+  var pl=punditLine(st);if(pl)return LANG==='he'?pl.he:pl.en;
   var car=st.career,S=car.season,avg=S.stats.apps?S.stats.sumScore/S.stats.apps:0;
   var g=S.stats.goals,a=S.stats.assists,good=avg>=7.1||(g+a)>=S.stats.apps*0.6&&S.stats.apps>=6;
   var n=LANG==='he';
@@ -3631,7 +3681,9 @@ function mediaLine(st){
            'A TV pundit: "An average of '+round1(avg)+' over '+S.stats.apps+' matches. Not enough for a player of his level."';
 }
 function applyEventChoice(st,i,rngSalt){
-  var car=st.career,S=car.season,ev=S.ev,e=EV_BY_ID[ev.id],o=e.o[i]||e.o[e.o.length-1];
+  var car=st.career,S=car.season,ev=S.ev;
+  if(ev.bank)return applyBankEvent(st,bankEventById(ev.id),i,rngSalt);
+  var e=EV_BY_ID[ev.id],o=e.o[i]||e.o[e.o.length-1];
   var r=rngFor(st.seed+':evr:'+car.year+':'+ev.id+':'+(rngSalt||''));
   var ok=r()<o.p,res={ok:ok,k:o.k,lines:[]};
   function L(he,en){res.lines.push({he:he,en:en});}
@@ -3644,7 +3696,7 @@ function applyEventChoice(st,i,rngSalt){
       break;
     case 'coachfight:apology':if(ok){car.trust=clamp(car.trust+4,0,100);L('המאמן קיבל את ההתנצלות. אמון +4.','The coach accepted. Trust +4.');}else L('הוא עדיין כועס, אבל זה יעבור.','He is still angry, but it will pass.');break;
     case 'coachfight:stand':if(ok){car.trust=clamp(car.trust+10,0,100);L('המאמן כיבד את זה. אמון +10.','The coach respected it. Trust +10.');}else{car.trust=clamp(car.trust-12,0,100);L('זה התפוצץ. אמון −12.','It blew up. Trust −12.');}break;
-    case 'coachfight:ignore':car.trust=clamp(car.trust-4,0,100);L('האווירה קרירה. אמון −4.','Things are cold. Trust −4.');break;
+    case 'coachfight:ignore':car.trust=clamp(car.trust-4,0,100);L('האווירה צוננת. אמון −4.','Things are cold. Trust −4.');break;
     case 'acl:surgery':case 'acl:ignore':
       car.injury={w:10,ret:3,type:2,long:true};
       if(!ok){car.rating=Math.max(35,car.rating-1);L('הניתוח הצליח חלקית. דירוג −1.','The surgery only partly worked. Rating −1.');}
@@ -3658,19 +3710,19 @@ function applyEventChoice(st,i,rngSalt){
     case 'position:accept':
       var np=NEWPOS[car.pd];car.pdOld=car.pd;car.pd=np;car.pos=POS_GROUP[np];car.trust=clamp(car.trust+8,0,100);
       if(S.comp)S.comp=makeCompetitor(st);
-      L('מעכשיו אתה '+posName(np)+'. אמון +8.','You are now a '+posName(np)+'. Trust +8.');break;
+      L('מעכשיו אתה '+posName(np)+'. אמון +8.','New position: '+posName(np)+'. Trust +8.');break;
     case 'position:refuse':car.trust=clamp(car.trust-5,0,100);L('המאמן לא שכח. אמון −5.','The coach will remember. Trust −5.');break;
     case 'position:ignore':car.trust=clamp(car.trust-2,0,100);L('נשארת בעמדה. אמון −2.','You stay where you are. Trust −2.');break;
-    case 'mentor:accept':car.xpMul=(car.xpMul||1)*1.12;car.xpMulYear=car.year;car.energy=clamp(car.energy-10,0,100);L('אימונים כפולים כל העונה.','Double sessions all season.');break;
+    case 'mentor:accept':car.mentorYear=car.year;car.xpMul=(car.xpMul||1)*1.12;car.xpMulYear=car.year;car.energy=clamp(car.energy-10,0,100);L('אימונים כפולים כל העונה.','Double sessions all season.');break;
     case 'media:answer':if(ok){car.trust=clamp(car.trust+4,0,100);L('התשובה שלך הפכה לוויראלית. אמון +4.','Your answer went viral. Trust +4.');}else{car.trust=clamp(car.trust-4,0,100);L('זה נשמע מתנשא. אמון −4.','It came across as arrogant. Trust −4.');}break;
     case 'agent:sign':car.agent=true;L('יש לך סוכן. בסוף העונה יגיעו יותר הצעות.','You have an agent. More offers will come at the end of the season.');break;
-    case 'captain:accept':car.captain=true;car.trust=clamp(car.trust+5,0,100);L('אתה הקפטן.','You are the captain.');break;
+    case 'captain:accept':car.captain=true;car.captainYear=car.year;car.trust=clamp(car.trust+5,0,100);L('אתה הקפטן.','You are the captain.');storyEvent(st,'captain');break;
     case 'charity:go':car.energy=clamp(car.energy-10,0,100);car.trust=clamp(car.trust+2,0,100);L('יום שלא תשכח. אמון +2.','A day you will not forget. Trust +2.');break;
     case 'contract:hold':
       if(ok){car.contract.wage=Math.round(car.contract.wage*1.2);car.contract.yrs+=3;L('קיבלת 20% יותר.','You got 20% more.');}
       else{car.contract.yrs+=3;car.trust=clamp(car.trust-8,0,100);L('חתמת בסוף על אותו סכום, והיחסים נפגעו. אמון −8.','You signed for the same in the end, and it soured things. Trust −8.');}
       break;
-    case 'contract:sign':case 'contract:ignore':car.contract.wage=Math.round(car.contract.wage*1.05);car.contract.yrs+=3;L('חתמת לשלוש שנים נוספות.','Signed for three more years.');break;
+    case 'contract:sign':case 'contract:ignore':car.contract.wage=Math.round(car.contract.wage*1.05);car.contract.yrs+=3;L('חתמת לשלוש שנים נוספות.','Signed for three more years.');storyEvent(st,'renewal',{slots:{years:3,untilYear:car.year+car.contract.yrs}});break;
     case 'homesick:fly':car.energy=clamp(car.energy+10,0,100);car.trust=clamp(car.trust-2,0,100);L('חזרת עם מצב רוח טוב. אמון −2.','You came back refreshed. Trust −2.');break;
     case 'homesick:push':if(ok){car.trust=clamp(car.trust+3,0,100);L('התגברת. אמון +3.','You pushed through. Trust +3.');}else{car.form=clamp(car.form-10,20,99);L('הכושר נפגע קצת.','Your form dipped a little.');}break;
     default:L('בסדר. ממשיכים.','Fine. Moving on.');
@@ -3682,7 +3734,7 @@ function applyEventChoice(st,i,rngSalt){
   return res;
 }
 function autoResolveEvent(st){
-  var e=EV_BY_ID[st.career.season.ev.id];
+  var ev=st.career.season.ev,e=ev.bank?bankEventById(ev.id):EV_BY_ID[ev.id];
   return applyEventChoice(st,e.o.length-1,'auto');
 }
 
@@ -3700,10 +3752,11 @@ function newsText(st,n){
   var car=st.career,d=n.d||{},he=LANG==='he',nm=car.name;
   function C(id){var c=clubById(id);return c?clubName(c,LANG):'';}
   switch(n.k){
-    case 'debut':return he?nm+' עשה בכורה בבוגרים בגיל '+d.age+'.':nm+' made his senior debut at '+d.age+'.';
+    case 'debut':return he?nm+' רשם הופעת בכורה בבוגרים בגיל '+d.age+'.':nm+' made his senior debut at '+d.age+'.';
     case 'goal1':return he?'השער הראשון בבוגרים של '+nm+'!':nm+' scores his first senior goal!';
     case 'keymatch':return keyMatchHeadline(st,d,(n.y||0)+':'+(n.fi||0));
     case 'fans':return he?d.he:d.en;
+    case 'story':return he?d.he:d.en;
     case 'chapter':return he?'📖 '+d.he:'📖 '+d.en;
     case 'press':return he?nm+' במסיבת העיתונאים: '+d.he:nm+' at the press conference: '+d.en;
     case 'scouts':return he?d.n+' מועדונים שלחו סקאוטים לראות את '+nm+', ביניהם '+C(d.cid)+'.':d.n+' clubs sent scouts to watch '+nm+', including '+C(d.cid)+'.';
@@ -3728,15 +3781,16 @@ function recordName(k){
 }
 function recordLabel(k){var s=recordName(k)||'';return s.charAt(0).toUpperCase()+s.slice(1);}
 var KEY_LABEL={derby:{he:'דרבי',en:'derby'},cupfinal:{he:'גמר הגביע',en:'cup final'},cupsemi:{he:'חצי גמר הגביע',en:'cup semi-final'},
-  contfinal:{he:'גמר היבשתי',en:'continental final'},contko:{he:'שלב הנוקאאוט',en:'knockout tie'},title:{he:'קרב האליפות',en:'title decider'},
+  contfinal:{he:'גמר יבשתי',en:'continental final'},contko:{he:'שלב הנוקאאוט',en:'knockout tie'},title:{he:'קרב האליפות',en:'title decider'},
   promo:{he:'קרב העלייה',en:'promotion decider'},releg:{he:'קרב ההישרדות',en:'relegation decider'},farewell:{he:'משחק הפרידה',en:'farewell match'},
-  debut:{he:'משחק הבכורה',en:'debut'},natdebut:{he:'הופעת הבכורה בנבחרת',en:'international debut'},youthdebut:{he:'הבכורה בנבחרת הנוער',en:'U21 debut'},
+  debut:{he:'משחק הבכורה',en:'debut'},natdebut:{he:'הופעת הבכורה בנבחרת',en:'international debut'},youthdebut:{he:'בכורה בנבחרת הנוער',en:'U21 debut'},
   tour:{he:'טורניר',en:'tournament'},youth:{he:'משחק הנוער',en:'youth match'},youthfinal:{he:'גמר גביע הנוער',en:'youth cup final'},
   opener:{he:'משחק הפתיחה',en:'season opener'}};
 
 /* the coach talks about what actually happened */
 function coachQuote(st){
   var car=st.career,S=car.season,avg=S.stats.apps?S.stats.sumScore/S.stats.apps:0;
+  var b=storyPick(st,'coachQuotes',storyCtx(st),'cq',{season:true});if(b)return b.txt;
   if(S.academy)return car.trust>=55?{he:'יש לו משהו מיוחד. צריך סבלנות.',en:'He has something special. We need patience.'}:{he:'הוא צריך לעבוד קשה יותר באימונים.',en:'He needs to work harder in training.'};
   if(!S.stats.apps)return {he:'הזמן שלו יגיע. הוא צריך להראות לי יותר באימונים.',en:'His time will come. He needs to show me more in training.'};
   if(avg>=7.3)return {he:'ממוצע '+round1(avg)+'. כרגע הוא השחקן הכי חשוב שלי.',en:'An average of '+round1(avg)+'. Right now he is my most important player.'};
@@ -3755,9 +3809,11 @@ function seasonStories(st,sum_){
   var car=st.career,S=car.season;
   var tops=sum_.scorers&&sum_.scorers[0];
   var g=S.stats.goals,a=S.stats.assists,ap=S.stats.apps;
+  if(!S.academy&&tops&&tops.me&&tops.g>0){car.totals.goldenBoots=(car.totals.goldenBoots||0)+1;}
   if(!S.academy&&tops&&tops.me&&tops.g>0)pushNews(st,'season',{he:car.name+' מלך השערים של הליגה עם '+tops.g+' שערים.',en:car.name+' is the league\'s top scorer with '+tops.g+' goals.'});
   else if(!S.academy&&ap>=20&&sum_.myScore>=7.3)pushNews(st,'season',{he:'ממוצע '+sum_.myScore+' ב-'+ap+' משחקים. מהעונות הטובות בליגה.',en:'An average of '+sum_.myScore+' in '+ap+' matches. One of the best seasons in the league.'});
   else if(!S.academy&&ap<10)pushNews(st,'season',{he:'רק '+ap+' הופעות העונה. צריך דקות.',en:'Only '+ap+' appearances this season. He needs minutes.'});
+  var cq=coachQuote(st);if(cq)pushNews(st,'coach',{q:cq});
   var rm=rivalMessage(st,'end');if(rm)pushNews(st,'rival',rm);
 }
 
@@ -3780,7 +3836,11 @@ var CH_GOAL={
   assists:{he:'{n} בישולים',en:'{n} assists',ic:'🅰'},
   cs:{he:'{n} רשתות נקיות',en:'{n} clean sheets',ic:'🧤'},
   natcall:{he:'זימון לנבחרת (דירוג {n})',en:'A national-team call (rating {n})',ic:'🎖'},
-  cupsemi:{he:'חצי גמר הגביע',en:'Reach the cup semi-final',ic:'🥇'}
+  cupsemi:{he:'חצי גמר הגביע',en:'Reach the cup semi-final',ic:'🥇'},
+  apps:{he:'{n} הופעות',en:'{n} appearances',ic:'👕'},
+  ga:{he:'{n} שערים ובישולים',en:'{n} goals and assists',ic:'⚽'},
+  avg:{he:'ממוצע {n}+',en:'A {n}+ average',ic:'📊'},
+  trust:{he:'אמון {n}',en:'Trust {n}',ic:'🤝'}
 };
 var CH_THREAT={
   contract:{he:'החוזה נגמר בסוף העונה',en:'Your contract ends this season',ic:'✍️'},
@@ -3813,7 +3873,10 @@ function buildChapter(st){
     if(!pool.length)pool.push({k:'rating',need:c.rating+2});
   }
   var g=pool[Math.min(pool.length-1,Math.floor(r()*Math.min(2,pool.length)))];
-  S.chapter={n:seasonNo(c),goal:g,threat:chapterThreat(st),mid:false};
+  // the season's arc from the bank: its goal becomes the chapter goal when the engine can measure it
+  var arc=S.academy?null:storyArc(st),grp=POS_GROUP[c.pd]||c.pos;
+  if(arc&&arc.goal&&arc.goal.k!=='auto'&&CH_GOAL[arc.goal.k]&&!(arc.goal.k==='ga'&&(grp==='GK'||grp==='DF')))g={k:arc.goal.k,need:arc.goal.target};
+  S.chapter={n:seasonNo(c),goal:g,threat:chapterThreat(st),mid:false,arc:arc?arc.id:null};
   return S.chapter;
 }
 function chapterThreat(st){
@@ -3846,6 +3909,10 @@ function chapterProgress(st){
     case 'assists':cur=S.stats.assists;done=cur>=need;break;
     case 'cs':cur=S.stats.cleanSheets;done=cur>=need;break;
     case 'natcall':cur=c.rating;done=cur>=need;break;
+    case 'apps':cur=S.stats.apps;done=cur>=need;break;
+    case 'ga':cur=S.stats.goals+S.stats.assists;done=cur>=need;break;
+    case 'avg':cur=S.stats.apps?Math.round(S.stats.sumScore/S.stats.apps*10)/10:0;done=S.stats.apps>=5&&cur>=need;break;
+    case 'trust':cur=Math.round(c.trust);done=cur>=need;break;
     case 'cupsemi':cur=S.cup?S.cup.alive.length:99;done=!!(S.cup&&!S.cup.out&&S.cup.alive.length<=4&&S.cup.alive.indexOf(c.clubId)>=0)||!!(S.cup&&S.cup.winner===c.clubId);break;
   }
   var tableKind=g.k==='title'||g.k==='top3'||g.k==='survive',cupKind=g.k==='cupsemi';
@@ -3862,6 +3929,8 @@ function chapterMid(st){
   var line=p.done?(he?'חצי הדרך, והיעד כבר ביד: '+p.text+'. עכשיו לשמור עליו.':'Halfway, and the goal is already in hand: '+p.text+'. Now keep it.'):
     p.pct>=0.45?(he?'חצי הדרך. '+p.text+': '+p.label+'. על המסלול.':'Halfway. '+p.text+': '+p.label+'. On track.'):
     (he?'חצי הדרך. '+p.text+': רק '+p.label+'. צריך תפנית.':'Halfway. '+p.text+': only '+p.label+'. Something has to change.');
+  var am=arcLine(st,'mid');
+  if(am){pushNews(st,'chapter',{he:am.he+' · '+p.label,en:am.en+' · '+p.label});return tl(am);}
   pushNews(st,'chapter',{he:line,en:line});
   return line;
 }
@@ -3880,6 +3949,7 @@ function chapterEnd(st,sum){
   var dl=DECLINE[c.pd]||[30,0.8];if(c.age>=dl[0])hooks.push({he:'בגיל '+c.age+' כל עונה היא מתנה. כמה נשארו?',en:'At '+c.age+' every season is a gift. How many are left?'});
   if(unlockedC(c,'nat')&&S.nat&&!S.nat.called&&c.rating>=S.nat.need-4)hooks.push({he:'הנבחרת במרחק '+(S.nat.need-c.rating)+' נקודות דירוג.',en:'The national team is '+(S.nat.need-c.rating)+' rating points away.'});
   if(!hooks.length)hooks.push({he:'עונה חדשה, דף חדש. המאמן כבר כתב את היעד הבא.',en:'A new season, a clean page. The coach has already written the next target.'});
+  var ac=arcLine(st,'cliff');if(ac)hooks=[ac];
   var hook=hooks[hashStr(st.seed+':hook:'+S.year)%hooks.length];
   var out={ok:p.done,goal:p.text,label:p.label,hook:tl(hook),hookObj:hook};
   if(p.done){c.fame=clamp((c.fame||0)+4,0,100);c.trust=clamp(c.trust+3,0,100);}
@@ -3915,20 +3985,45 @@ function pressDue(st,M,key){
   var c=st.career;
   return !!(key&&M.played&&!c.season.academy&&seasonNo(c)>=2&&M.info.kind!=='youth');
 }
+function pressNormalize(b,ctx){
+  var q=b.it;
+  var unq=function(x){return String(x).replace(/^["\u201c\u201d]+|["\u201c\u201d]+$/g,'');};
+  return {id:q.id,bank:true,q:b.txt,a:q.a.map(function(a){var tt=storyText(a.t,ctx)||{he:a.t[0],en:a.t[1]};return {he:unq(tt.he),en:unq(tt.en),fx:storyFxView(a.fx),raw:a.fx||{},flag:a.flag,later:a.later};})};
+}
+/* a question before a big match (the derby, a final): a promise the result will come back to */
+function pressBefore(st,f,key){
+  var c=st.career;if(!key||!c||c.season.academy||seasonNo(c)<2)return null;
+  var S=c.season,r=rngFor(st.seed+':pressb:'+S.year+':'+S.fi);if(r()>0.6)return null;
+  var ctx=storyCtx(st,{before:'key',key:key,slots:{label:KEY_LABEL[key]?{he:KEY_LABEL[key].he,en:KEY_LABEL[key].en}:null}});
+  var b=storyPick(st,'press',ctx,'pb'+S.fi,{before:true});
+  return b?pressNormalize(b,ctx):null;
+}
 function pressQuestion(st,M){
+  var c=st.career,S=c.season,mem=storyMem(c),b=null,ctxB;
+  // something happened since the last big match (a return from injury, the squad list): the press asks about that first
+  var pe=mem.pressEvent;
+  if(pe&&pe.year===c.year){mem.pressEvent=null;ctxB=storyCtx(st,pe.ex);ctxB.event=pe.event;b=storyPick(st,'press',ctxB,'pe'+S.fi,{event:pe.event});}
+  if(!b){ctxB=storyCtx(st,matchCtx(st,M));b=storyPick(st,'press',ctxB,'p'+S.fi,{afterKey:true});}
+  if(b)return pressNormalize(b,ctxB);
+  // nothing from the bank: the old pool, half the time, never the same question two seasons running
+  var r0=rngFor(st.seed+':pressold:'+S.year+':'+S.fi);if(r0()<0.5)return null;
   var scored=M.my.g>0,when=M.mom?'mom':(M.win?(scored?'winScored':'win'):(M.draw?'draw':(scored?'lossScored':'loss')));
   var r=rngFor(st.seed+':press:'+st.career.season.year+':'+st.career.season.fi);
   var pool=PRESS.filter(function(x){return x.when===when;});
   if(M.mom&&r()<0.5)pool=PRESS.filter(function(x){return x.when==='mom';});
+  pool=pool.filter(function(x){var k='pressOld:'+PRESS.indexOf(x),last=mem.used[k];return last==null||c.year-last>=2;});
   if(!pool.length)return null;
-  return pick(r,pool);
+  var q0=pick(r,pool);mem.used['pressOld:'+PRESS.indexOf(q0)]=c.year;
+  return q0;
 }
 function applyPress(st,q,i){
   var c=st.career,a=q.a[i];if(!a)return null;
-  var f=a.fx||{};
-  if(f.trust)c.trust=clamp(c.trust+f.trust,0,100);
-  if(f.fame)c.fame=clamp((c.fame||0)+f.fame,0,100);
-  if(f.bond)c.bond=clamp((c.bond||0)+f.bond,0,100);
+  var f;
+  if(a.raw){f=storyFx(st,a.raw);storyFlag(st,a.flag);if(a.later)storyMem(c).later=a.later;}
+  else{f=a.fx||{};
+    if(f.trust)c.trust=clamp(c.trust+f.trust,0,100);
+    if(f.fame)c.fame=clamp((c.fame||0)+f.fame,0,100);
+    if(f.bond)c.bond=clamp((c.bond||0)+f.bond,0,100);}
   pushNews(st,'press',{he:'"'+a.he+'"',en:'"'+a.en+'"'});
   return f;
 }
@@ -3939,8 +4034,26 @@ var TRAITS={
   clutch:{he:'קלאץ׳',en:'Clutch',ic:'🧊',d:{he:'מכריע בדקות הסיום',en:'Decides it late'}},
   selfish:{he:'אנוכי',en:'Selfish',ic:'🪞',d:{he:'בועט כשחבר פנוי יותר',en:'Shoots when a team-mate is freer'}},
   team:{he:'שחקן קבוצה',en:'Team player',ic:'🤝',d:{he:'מוסר כשזה הנכון',en:'Passes when it is right'}},
-  calm:{he:'קר רוח',en:'Ice cool',ic:'🧘',d:{he:'שומר על היתרון',en:'Protects a lead'}}
+  calm:{he:'קר רוח',en:'Ice cool',ic:'🧘',d:{he:'שומר על היתרון',en:'Protects a lead'}},
+  creator:{he:'הקוסם',en:'The Magician',ic:'🪄',d:{he:'יותר בישולים משערים',en:'More assists than goals'}},
+  ironman:{he:'איש הברזל',en:'Iron man',ic:'🦾',d:{he:'3 עונות מלאות בלי פציעה ארוכה',en:'3 full seasons, no long injury'}},
+  wall:{he:'החומה',en:'The Wall',ic:'🧱',d:{he:'רשת נקייה בכל משחק שני',en:'A clean sheet every other game'}},
+  fanfav:{he:'חביב הקהל',en:'Fan favourite',ic:'❤️',d:{he:'תהילה 70+',en:'Fame 70+'}},
+  loyal:{he:'נאמן',en:'Loyal',ic:'💙',d:{he:'6+ עונות באותו מועדון',en:'6+ seasons at one club'}},
+  wanderer:{he:'הנודד',en:'The Wanderer',ic:'🧳',d:{he:'4+ מועדונים',en:'4+ clubs'}}
 };
+/* status traits from the whole season (the bank's rules): set to 6 while true, so they show only when no habit dominates */
+function noteSeasonTraits(st){
+  var c=st.career,S=c.season,T=c.traits||(c.traits={});if(!S||S.academy)return;
+  var st_=S.stats,grp=POS_GROUP[c.pd]||c.pos;
+  function set(k,on){if(on)T[k]=6;else delete T[k];}
+  set('creator',st_.assists>=8&&st_.assists>=st_.goals*1.5);
+  c.ironStreak=(st_.apps>=30&&(st_.injW||0)<4)?(c.ironStreak||0)+1:0;set('ironman',c.ironStreak>=3);
+  set('wall',(grp==='GK'||c.pd==='CB')&&st_.apps>=15&&st_.cleanSheets>=st_.apps*0.4);
+  set('fanfav',(c.fame||0)>=70);
+  set('loyal',(c.clubStats[c.clubId]||{}).seasons>=5);
+  set('wanderer',careerClubs(c).length>=4);
+}
 function noteTraits(st,M){
   var c=st.career;if(!M.moments||M.info.kind==='youth')return;
   var T=c.traits||(c.traits={});
@@ -3979,7 +4092,16 @@ var RIBBONS=[
   {k:'oracle',ic:'🔮',he:'האורקל',en:'The oracle',d:{he:'מוניטין 500+ בעין הפרשן',en:'500+ pundit reputation'},f:function(c,st){return st.meta.pundit.rep>=500;}},
   {k:'clutch',ic:'🧊',he:'איש הרגעים הגדולים',en:'Big-moment player',d:{he:'25+ הכרעות בדקות הסיום',en:'25+ late deciders'},f:function(c){return (c.traits&&c.traits.clutch||0)>=25;}},
   {k:'brave',ic:'🦁',he:'לב של אריה',en:'Lionheart',d:{he:'60+ ניסיונות על הסיכוי הקטן',en:'60+ long shots taken'},f:function(c){return (c.traits&&c.traits.brave||0)>=60;}},
-  {k:'team',ic:'🤝',he:'קודם הקבוצה',en:'Team first',d:{he:'40+ מסירות במקום בעיטות',en:'40+ passes instead of shots'},f:function(c){return (c.traits&&c.traits.team||0)>=40;}}
+  {k:'team',ic:'🤝',he:'קודם הקבוצה',en:'Team first',d:{he:'40+ מסירות במקום בעיטות',en:'40+ passes instead of shots'},f:function(c){return (c.traits&&c.traits.team||0)>=40;}},
+  {k:'goldenboot',ic:'👟',he:'נעל הזהב',en:'Golden Boot',d:{he:'מלך השערים של הליגה',en:'League top scorer'},f:function(c){return (c.totals.goldenBoots||0)>=1;}},
+  {k:'prophet',ic:'🔮',he:'נבואה שהגשימה את עצמה',en:'Self-fulfilling prophecy',d:{he:'25+ הכרזות שהתממשו',en:'25+ calls that came off'},f:function(c){return !!(c.decl&&c.decl.ok>=25);}},
+  {k:'nathero',ic:'🎖',he:'גיבור הנבחרת',en:'National hero',d:{he:'10+ שערים בנבחרת',en:'10+ international goals'},f:function(c){return (c.totals.natGoals||0)>=10;}},
+  {k:'frombottom',ic:'🧗',he:'מלמטה עד למעלה',en:'From the bottom',d:{he:'התחיל בליגה נמוכה והגיע לליגת העל',en:'Started lower down, reached the top flight'},f:function(c){return c.startTier>=1&&c.bestTier===0;}},
+  {k:'yoyo',ic:'🪀',he:'יו-יו',en:'Yo-yo',d:{he:'3+ עליות וירידות ליגה',en:'3+ promotions and relegations'},f:function(c){return (c.totals.promos||0)+(c.totals.relegs||0)>=3;}},
+  {k:'finals',ic:'🏟',he:'איש הגמרים',en:'Man of the finals',d:{he:'5+ גמרים',en:'5+ finals played'},f:function(c){return (c.totals.finals||0)>=5;}},
+  {k:'soclose',ic:'🥈',he:'כמעט',en:'So close',d:{he:'3+ גמרים שאבדו',en:'3+ finals lost'},f:function(c){return (c.totals.finalsLost||0)>=3;}},
+  {k:'comeback',ic:'🔁',he:'הקאמבק',en:'The comeback',d:{he:'חזר מ-2+ פציעות ארוכות',en:'Back from 2+ long injuries'},f:function(c){return (c.totals.longInj||0)>=2;}},
+  {k:'homegrown',ic:'🏡',he:'בן בית',en:'Homegrown',d:{he:'5+ עונות במועדון האקדמיה',en:'5+ seasons at the academy club'},f:function(c){var h=c.history[0];return !!(h&&h.cid&&c.clubStats[h.cid]&&c.clubStats[h.cid].seasons>=5);}}
 ];
 function careerRibbons(st,c){
   return RIBBONS.filter(function(rb){try{return !!rb.f(c,st);}catch(e){return false;}}).map(function(rb){return rb.k;});
@@ -3988,19 +4110,19 @@ function ribbonDef(k){for(var i=0;i<RIBBONS.length;i++)if(RIBBONS[i].k===k)retur
 
 /* ---------- headlines with variety: the same fact, never the same sentence twice in a row ---------- */
 function keyMatchHeadline(st,d,seed){
-  var nm=st.career.name,he=LANG==='he',v=hashStr(String(seed))%3;
+  var nm=st.career.name,he=LANG==='he',v=hashStr(String(seed))%3,L=d.label;
   if(d.win){
-    if(d.g>=2)return he?[nm+' עם '+d.g+' שערים ב'+d.label+'.','ערב של '+nm+': '+d.g+' שערים ב'+d.label+'.',d.g+' שערים ל'+nm+'. ה'+d.label+' היה שלו.'][v]:
-                        [nm+' scores '+d.g+' in the '+d.label+'.',nm+'\'s night: '+d.g+' goals in the '+d.label+'.',d.g+' goals for '+nm+'. The '+d.label+' was his.'][v];
-    if(d.g===1)return he?['השער של '+nm+' הכריע את ה'+d.label+'.',nm+' שבר את ה'+d.label+' עם שער אחד.','שער אחד, שלוש נקודות: '+nm+' ב'+d.label+'.'][v]:
-                         [nm+'\'s goal decides the '+d.label+'.',nm+' breaks the '+d.label+' with one goal.','One goal, three points: '+nm+' in the '+d.label+'.'][v];
-    return he?['ניצחון ב'+d.label+'. ציון '+d.sc+' ל'+nm+'.','ה'+d.label+' נלקח. '+nm+' סיים עם '+d.sc+'.','שלוש נקודות מה'+d.label+'. '+nm+': '+d.sc+'.'][v]:
-              ['A win in the '+d.label+'. '+nm+' rated '+d.sc+'.','The '+d.label+' is won. '+nm+' finished on '+d.sc+'.','Three points from the '+d.label+'. '+nm+': '+d.sc+'.'][v];
+    if(d.g>=2)return he?[nm+' כבש '+(d.g===2?'צמד':d.g===3?'שלושער':d.g+' שערים')+' בניצחון ב'+L+'.','ערב של '+nm+': '+d.g+' שערים ב'+L+'.',d.g+' שערים ל'+nm+' ב'+L+'. המשחק היה שלו.'][v]:
+                        [nm+' scores '+(d.g===2?'twice':d.g===3?'a hat-trick':d.g)+' in the '+L+' win.',nm+'\'s night: '+d.g+' goals in the '+L+'.',d.g+' goals for '+nm+'. The '+L+' was his.'][v];
+    if(d.g===1)return he?[nm+' כבש בניצחון ב'+L+'.','שער של '+nm+' בניצחון ב'+L+'.','שער אחד, שלוש נקודות: '+nm+' ב'+L+'.'][v]:
+                         [nm+' scores in the '+L+' win.','A '+nm+' goal in the '+L+' win.','One goal, three points: '+nm+' in the '+L+'.'][v];
+    return he?['ניצחון ב'+L+'. ציון '+d.sc+' ל'+nm+'.','ניצחון ב'+L+'. '+nm+' סיים עם ציון '+d.sc+'.','שלוש נקודות ב'+L+'. '+nm+': ציון '+d.sc+'.'][v]:
+              ['A win in the '+L+'. '+nm+' rated '+d.sc+'.','The '+L+' is won. '+nm+' finished on '+d.sc+'.','Three points from the '+L+'. '+nm+': '+d.sc+'.'][v];
   }
-  if(d.draw)return he?['תיקו ב'+d.label+'. '+nm+' קיבל '+d.sc+'.','נקודה אחת מה'+d.label+'. '+nm+': '+d.sc+'.','ה'+d.label+' נגמר בתיקו. '+nm+' עם '+d.sc+'.'][v]:
-                     ['A draw in the '+d.label+'. '+nm+' rated '+d.sc+'.','One point from the '+d.label+'. '+nm+': '+d.sc+'.','The '+d.label+' ends level. '+nm+' on '+d.sc+'.'][v];
-  return he?['הפסד ב'+d.label+'. '+nm+' קיבל '+d.sc+'.','ערב קשה ב'+d.label+'. '+nm+': '+d.sc+'.','ה'+d.label+' אבד. '+nm+' סיים עם '+d.sc+'.'][v]:
-            ['Defeat in the '+d.label+'. '+nm+' rated '+d.sc+'.','A hard night in the '+d.label+'. '+nm+': '+d.sc+'.','The '+d.label+' is lost. '+nm+' finished on '+d.sc+'.'][v];
+  if(d.draw)return he?['תיקו ב'+L+'. '+nm+' קיבל ציון '+d.sc+'.','נקודה אחת ב'+L+'. '+nm+': ציון '+d.sc+'.','תיקו ב'+L+'. '+nm+' סיים עם ציון '+d.sc+'.'][v]:
+                     ['A draw in the '+L+'. '+nm+' rated '+d.sc+'.','One point from the '+L+'. '+nm+': '+d.sc+'.','The '+L+' ends level. '+nm+' on '+d.sc+'.'][v];
+  return he?['הפסד ב'+L+'. '+nm+' קיבל ציון '+d.sc+'.','ערב קשה ב'+L+'. '+nm+': ציון '+d.sc+'.','הפסד ב'+L+'. '+nm+' סיים עם ציון '+d.sc+'.'][v]:
+            ['Defeat in the '+L+'. '+nm+' rated '+d.sc+'.','A hard night in the '+L+'. '+nm+': '+d.sc+'.','The '+L+' is lost. '+nm+' finished on '+d.sc+'.'][v];
 }
 /* fan posts after a key match: short, with the number that matters */
 function fanPost(st,M,seed){
@@ -4095,6 +4217,376 @@ function dailyFinish(st,M){
 function dailyShareText(res){
   var he=LANG==='he',d=res.key.split('-'),date=d[2]+'.'+d[1]+'.'+d[0];
   return (he?'פריצה · הרגע היומי '+date:'Breakthrough · Daily moment '+date)+'\n'+res.sq+'\n'+res.pts+'/'+res.max+(he?' נק׳':' pts')+'\n'+(typeof location!=='undefined'&&/^https?:$/.test(location.protocol)?location.origin+location.pathname:'');
+}
+
+/* ===== 65-bank.js ===== */
+/* ===== STORY BANK (generated by tools/bank2js.js from addons/story-bank; edit the parts there, not here) =====
+   personas 8, headlines 30, fanPosts 12, press 16, arcs 13, seasonHooks 7, coachQuotes 7, punditLines 2, coachInstructions 8, events 16, partner 4
+   Text pairs are [hebrew, english, condition?]; fan posts are [persona, hebrew, english, condition?]. */
+var BANK={"personas":[{"id":"gate5","he":"יוסי משער 5","en":"Yossi from Gate 5","ic":"📣"},{"id":"stats","he":"דנה סטטיסטיקה","en":"Dana Stats","ic":"📊"},{"id":"grandpa","he":"סבא שמעון","en":"Grandpa Shimon","ic":"👴"},{"id":"kid","he":"נוי מכיתה ו׳","en":"Noy, Year 7","ic":"🧒"},{"id":"doom","he":"הפסימי","en":"The Pessimist","ic":"🌧"},{"id":"away","he":"אוהד היריבה","en":"Rival fan","ic":"😏"},{"id":"pod","he":"הפודקאסט של מוצ״ש","en":"The Saturday Night Pod","ic":"🎙"},{"id":"mum","he":"אמא","en":"Mum","ic":"❤️"}],"headlines":[{"id":"win_scored","tier":2,"cd":3,"when":{"after":"key","result":"W","g>=":1,"g<":2},"v":[["{name} כבש, ו{club} ניצחה {score} את {opp}","{name} scores as {club} beat {opp} {score}"],["ערב של {name}: שער וניצחון {score} על {opp}","{name}'s night: a goal and a {score} win over {opp}"],["{opp} לא עצרה את {name}. ניצחון {score} ל{club}","{opp} could not stop {name} in a {score} win for {club}"],["שער מספר {gs} העונה ל{name}, ו{club} מנצחת {score}","Goal number {gs} of the season for {name} as {club} win {score}"],["{name} על לוח התוצאות, {club} עם שלוש נקודות מול {opp}","{name} on the scoresheet, three points for {club} against {opp}"],["{label}: {name} כבש, {club} חוגגת {score}","{label}: {name} scores, {club} celebrate a {score} win"],["הקהל שר את השם של {name} אחרי ה-{score} על {opp}","The crowd sings {name}'s name after the {score} win over {opp}"],["{name} עשה את זה שוב: שער בניצחון {score} על {opp}","{name} does it again: a goal in the {score} win over {opp}",{"gs>=":3}],["המשך החלום: {name} כובש, ו{club} ממשיכה לנצח","The dream goes on: {name} scores and {club} keep winning",{"winStreak>=":3}],["בגיל {age} כבר כובש במשחקים גדולים: {name} מול {opp}","Only {age} and already scoring in big games: {name} against {opp}",{"age<=":20}]]},{"id":"win_multi","tier":1,"cd":3,"when":{"after":"key","result":"W","g>=":2},"v":[["צמד ל{name}, ו{club} מנצחת {score} את {opp}","A brace for {name} as {club} beat {opp} {score}",{"g":2}],["{name} כבש צמד, {opp} נשארה בלי תשובה","{name} scores twice and {opp} have no answer",{"g":2}],["שלושער! {name} לוקח הביתה את הכדור","Hat-trick! {name} takes the match ball home",{"g>=":3}],["{g} שערים ל{name}. {opp} עדיין מחפשת אותו","{g} goals for {name}. {opp} are still looking for him"],["{name} לבד מול {opp}: {g} שערים ב-{score}","{name} on his own against {opp}: {g} goals in a {score} win"],["ערב מושלם: {name} כבש {g}, ו{club} דורסת {score}","A perfect night: {name} scores {g} as {club} cruise to {score}",{"margin>=":2}]]},{"id":"win_assist","tier":2,"cd":3,"when":{"after":"key","result":"W","g":0,"a>=":1},"v":[["{name} בישל, ו{club} ניצחה {score}","{name} sets it up as {club} win {score}"],["המסירה של הערב: {name} פותח את ההגנה של {opp}","Pass of the night: {name} unlocks {opp}'s defence"],["{name} לא כבש, אבל בלעדיו אין ניצחון על {opp}","{name} did not score, but there is no win over {opp} without him"],["{a} בישולים ל{name} בניצחון {score}","{a} assists for {name} in a {score} win",{"a>=":2}],["הקשר שרואה הכול: {name} מוביל את {club} ל-{score}","The midfielder who sees everything: {name} drives {club} to {score}",{"pos":["MF"]}],["הרמה של {name}, שער ל{club}, שלוש נקודות מול {opp}","A {name} cross, a {club} goal, three points against {opp}",{"pos":["DF","MF","FW"]}]]},{"id":"win_quiet","tier":3,"cd":3,"when":{"after":"key","result":"W","g":0,"a":0,"rating>=":6.8},"v":[["{club} ניצחה {score}, ו{name} שלט במרכז המגרש","{club} win {score} with {name} running midfield",{"pos":["MF"]}],["עבודה שקטה, ניצחון גדול: {name} עם ציון {rating}","Quiet work, big win: {name} rated {rating}"],["{club} מנצחת {score}. {name} עשה את העבודה השחורה","{club} win {score}. {name} did the dirty work"],["ההגנה של {club} לא נשברה, ו{name} עמד בראשה","{club}'s defence held firm with {name} at its heart",{"pos":["DF"]}],["{name} סגר את האגף, {club} סגרה את המשחק","{name} shut down his flank and {club} shut out {opp}",{"pos":["DF"],"cs":true}]]},{"id":"clean_sheet","tier":2,"cd":3,"when":{"after":"key","cs":true,"pos":["GK","DF"]},"v":[["{name} שומר על רשת נקייה: {score} על {opp}","{name} keeps a clean sheet in a {score} win over {opp}"],["קיר בשער: {sv} הצלות ל{name}","A wall in goal: {sv} saves from {name}",{"pos":["GK"],"sv>=":3}],["{opp} ניסתה הכול. {name} עצר הכול","{opp} tried everything. {name} stopped everything",{"pos":["GK"]}],["רשת נקייה מספר {css} העונה ל{name}","Clean sheet number {css} of the season for {name}"],["{name} נעל את השער, {club} לקחה את הנקודות","{name} locks the door and {club} take the points"],["הצלה אחת ששווה ניצחון: {name} מציל את {club}","One save worth a win: {name} rescues {club}",{"pos":["GK"],"margin<=":1}]]},{"id":"draw","tier":3,"cd":3,"when":{"after":"key","result":"D"},"v":[["{club} ו{opp} נפרדו ב-{score}","{club} and {opp} share the points at {score}"],["נקודה אחת מול {opp}. {name}: \"מגיע לנו יותר\"","A point against {opp}. {name}: \"We deserved more\""],["{name} כבש, אבל {club} נאלצה להסתפק בתיקו","{name} scored, but {club} had to settle for a draw",{"g>=":1}],["תיקו מאכזב, ו{name} כבר מסתכל קדימה","A frustrating draw, and {name} is already looking ahead"],["{score} מול {opp}: נקודה שעוד יכולה להתברר כחשובה","{score} against {opp}: a point that may yet matter"],["{club} מאבדת נקודות מול {opp}. {name} עם ציון {rating}","{club} drop points against {opp}. {name} rated {rating}",{"stronger":true}]]},{"id":"loss","tier":3,"cd":3,"when":{"after":"key","result":"L"},"v":[["ערב קשה ל{club}: {score} מול {opp}","A hard night for {club}: {score} against {opp}"],["{opp} הייתה טובה יותר. הפסד {score} ל{club}","{opp} were better. A {score} defeat for {club}"],["{name} כבש, אבל זה לא הספיק מול {opp}","{name} scored, but it was not enough against {opp}",{"g>=":1}],["הפסד כואב, ו{club} צריכה תשובות לפני המשחק הבא","A painful defeat, and {club} need answers before the next game"],["{club} מתרסקת מול {opp}: {score}","{club} collapse against {opp}: {score}",{"margin>=":3}],["לא היום: {club} מפסידה, ו{name} מחכה לשבוע הבא","Not today: {club} lose, and {name} waits for next week"],["החלום נעצר מול {opp}","The dream ends against {opp}",{"knockout":true}],["{name} עם ציון {rating} בהפסד {score}. \"נחזור חזקים יותר\"","{name} rated {rating} in a {score} defeat. \"We'll come back stronger\""]]},{"id":"loss_mistake","tier":2,"cd":4,"when":{"after":"key","result":"L","ownMistake":true},"v":[["טעות אחת יקרה: {name} והשער של {opp}","One costly mistake: {name} and {opp}'s goal"],["{name} לוקח אחריות: \"הטעות שלי עלתה לנו בנקודות\"","{name} takes the blame: \"My mistake cost us\""],["ערב לשכוח ל{name} מול {opp}","A night to forget for {name} against {opp}"],["גם הטובים טועים. המאמן מגן על {name}","Even the best make mistakes. The coach backs {name}",{"trust>=":55}],["אחרי הטעות מול {opp}: כל העיניים על {name}","After the error against {opp}, all eyes are on {name}"]]},{"id":"derby_win","tier":1,"cd":4,"when":{"after":"key","key":"derby","result":"W"},"v":[["העיר שייכת ל{club}: {score} בדרבי","The city belongs to {club}: {score} in the derby"],["{name}, גיבור הדרבי","{name}, derby hero",{"g>=":1}],["הדרבי של {club}: {score} על {opp}","The derby belongs to {club}: {score} over {opp}"],["ב{city} ידברו על הדרבי הזה עוד שנים","{city} will talk about this derby for years",{"margin>=":3}],["{name} כבר יודע מה זה דרבי: ניצחון {score} על {opp}","{name} now knows what a derby means: {score} over {opp}",{"firstDerby":true}],["דרבי של {name}: {g} שערים, ו{city} חוגגת","{name}'s derby: {g} goals and {city} celebrates",{"g>=":2}]]},{"id":"derby_loss","tier":2,"cd":4,"when":{"after":"key","key":"derby","result":"L"},"v":[["הדרבי הלך ל{opp}: {score}","The derby goes to {opp}: {score}"],["שבוע ארוך ל{club} אחרי ההפסד בדרבי","A long week for {club} after the derby defeat"],["{opp} חוגגת, {club} שותקת","{opp} celebrate, {club} fall silent"],["{name}: \"אנחנו חייבים לאוהדים את הדרבי הבא\"","{name}: \"We owe the fans the next derby\""],["כאב של דרבי: {club} נפלה {score}","Derby pain: {club} lose {score}"]]},{"id":"debut","tier":0,"once":true,"when":{"event":"debut"},"v":[["רק בן {age}: {name} עולה לראשונה למגרש בבוגרים של {club}","Only {age}: {name} makes his senior debut for {club}",{"age<=":17}],["{name} רשם הופעת בכורה בבוגרים של {club}","{name} makes his first-team debut for {club}",{"age>=":18,"age<=":19}],["סוף סוף: {name} מקבל את ההזדמנות שחיכה לה","Finally: {name} gets the chance he waited for",{"age>=":20}],["בכורה עם חותמת: {name} כבש כבר במשחק הראשון","A debut to remember: {name} scores first time out",{"g>=":1}],["{name} נכנס בדקה {min}, והקהל קם על הרגליים","{name} comes on in minute {min} and the crowd rises",{"sub":true}]]},{"id":"first_goal","tier":0,"once":true,"when":{"event":"firstGoal"},"v":[["השער הראשון של {name} בבוגרים, ואיזה שער","{name}'s first senior goal, and what a goal"],["{name} פותח את החשבון במדי {club}","{name} opens his account for {club}"],["בגיל {age}: {name} כובש לראשונה בבוגרים","At {age}, {name} scores his first senior goal"],["הוא חיכה {apps} הופעות לרגע הזה: השער הראשון של {name}","He waited {apps} appearances for this: {name}'s first goal",{"apps>=":15}]]},{"id":"first_cap","tier":0,"once":true,"when":{"event":"firstCap"},"v":[["{name} זומן לראשונה לנבחרת {country}","{name} earns a first call-up for {country}"],["הופעת בכורה בנבחרת: {name} עלה מהספסל מול {opp}","International debut: {name} comes off the bench against {opp}",{"sub":true}],["מהאקדמיה ועד הנבחרת: הדרך של {name}","From the academy to the national team: {name}'s road"],["בגיל {age}: {name} לובש לראשונה את חולצת הנבחרת","At {age}, {name} pulls on the national shirt for the first time"]]},{"id":"first_abroad","tier":0,"once":true,"when":{"event":"transfer","abroad":true,"firstAbroad":true},"v":[["{name} נוחת ב{city2}: \"חלום של כל ילד\"","{name} lands in {city2}: \"Every kid's dream\""],["הלגיונר החדש: {name} עובר ל{club2}","The new export: {name} moves to {club2}"],["{name} עוזב את {country}. \"אני הולך להוכיח שמגיע לי\"","{name} leaves {country}. \"I'm going to prove I belong\""]]},{"id":"injury_long","tier":1,"cd":2,"when":{"event":"injury","weeks>=":6},"v":[["מכה קשה ל{club}: {name} ייעדר כ-{w} משחקים","Blow for {club}: {name} out for about {w} matches"],["{name} פצוע. הרופאים: \"חזרה בעוד {w} משחקים, אולי יותר\"","{name} injured. Doctors: \"Back in {w} matches, maybe more\""],["{name} עבר ניתוח ומתחיל את הדרך חזרה","{name} has surgery and starts the road back",{"surgery":true}],["{club} בלי {name} בשבועות הקרובים","{club} without {name} for the coming weeks"]]},{"id":"comeback","tier":1,"cd":2,"when":{"event":"return","weeksOut>=":6},"v":[["{name} חוזר! אחרי {wo} משחקים בחוץ","{name} is back after {wo} matches out"],["הקהל קם על הרגליים: {name} חזר למגרש","The crowd rises as {name} returns"],["חזרה עם שער: {name} כובש במשחק הראשון אחרי הפציעה","Back with a goal: {name} scores on his return",{"g>=":1}],["{name}: \"היו לילות שלא האמנתי שאחזור\"","{name}: \"Some nights I didn't believe I'd be back\""]]},{"id":"rumour","tier":3,"cd":2,"when":{"window":true,"interest>=":1,"event":"rumour"},"v":[["{club2} עוקבת אחרי {name}","{club2} keeping tabs on {name}"],["דיווח: סקאוטים של {club2} צפו ב{name} מקרוב","Report: {club2} scouts watched {name} up close"],["{name} ברשימת הקניות של {club2}?","{name} on {club2}'s shopping list?"],["מ{country2}: \"{club2} מוכנה להגיש הצעה על {name}\"","From {country2}: \"{club2} ready to bid for {name}\""],["{club} לא ממהרת למכור את {name}","{club} in no rush to sell {name}"],["הסוכן של {name} נצפה ב{city2}","{name}'s agent spotted in {city2}",{"agent":true}],["כמה מועדונים, שחקן אחד: המרוץ אחרי {name}","Several clubs, one player: the race for {name}",{"interest>=":3}],["{name}: \"אני מרוכז רק ב{club}\"","{name}: \"I'm only focused on {club}\""]]},{"id":"transfer_done","tier":1,"cd":1,"when":{"event":"transfer"},"v":[["רשמי: {name} עובר ל{club2}","Official: {name} joins {club2}"],["{name} חתם ל-{years} שנים ב{club2}","{name} signs a {years}-year deal at {club2}"],["{club} נפרדת מ{name}: \"זה תמיד יהיה הבית שלך\"","{club} say goodbye to {name}: \"This will always be your home\"",{"seasonsAtClub>=":3}],["השאלה לעונה: {name} עובר ל{club2}","Season loan: {name} joins {club2}",{"loan":true}],["צעד גדול: {name} מ{league} ל{league2}","A big step: {name} goes from the {league} to the {league2}",{"stepUp":true}]]},{"id":"renewal","tier":2,"cd":2,"when":{"event":"renewal"},"v":[["{name} חתם על הארכה עד {untilYear}","{name} extends his contract until {untilYear}"],["{club} נועלת את {name} ל-{years} שנים נוספות","{club} lock {name} down for {years} more years"],["סוף לשמועות: {name} נשאר ב{club}","End of the rumours: {name} stays at {club}",{"interest>=":1}],["חוזה חדש ושכר חדש: {club} מתגמלת את {name}","A new deal and a raise: {club} reward {name}"]]},{"id":"record","tier":1,"cd":1,"when":{"event":"record"},"v":[["{name} שבר את שיא המועדון: {v} {recname}","{name} breaks the club record: {v} {recname}"],["היסטוריה ב{club}: אף אחד לא עשה את זה לפני {name}","History at {club}: nobody had done it before {name}"],["השיא של {holder} נפל: {name} עם {v} {recname}","{holder}'s record falls: {name} reaches {v} {recname}"],["{name} נכנס לספרי ההיסטוריה של {club}","{name} enters {club}'s history books"]]},{"id":"milestone","tier":2,"cd":0,"when":{"event":"milestone"},"v":[["שער מספר {n} בקריירה ל{name}","Career goal number {n} for {name}",{"stat":"goals"}],["{n} הופעות: אבן דרך ל{name}","{n} appearances: a milestone for {name}",{"stat":"apps"}],["הבישול ה-{n} של {name} בקריירה","Career assist number {n} for {name}",{"stat":"assists"}],["רשת נקייה מספר {n} בקריירה ל{name}","Career clean sheet number {n} for {name}",{"stat":"cleanSheets"}],["{n} הופעות בנבחרת ל{name}","{n} caps for {name}",{"stat":"caps"}]]},{"id":"title","tier":0,"cd":0,"when":{"event":"title"},"v":[["אלופה! {club} זוכה ב{league}, ו{name} במרכז החגיגה","Champions! {club} win the {league} with {name} at the heart of it"],["{name} מניף את גביע האליפות","{name} lifts the league trophy"],["{city} חוגגת: {club} אלופה אחרי {drought} שנים","{city} celebrates: {club} are champions after {drought} years",{"drought>=":5}],["השנה של {name}: {gs} שערים ואליפות","{name}'s year: {gs} goals and a title",{"gs>=":10}],["{club} אלופה. {name}: \"על זה חלמנו כשהיינו בני 15\"","{club} are champions. {name}: \"We dreamed of this when we were 15\"",{"homegrown":true}]]},{"id":"promotion","tier":0,"cd":0,"when":{"event":"promoted"},"v":[["{club} עולה ליגה! {name} חוגג עם האוהדים על הדשא","{club} are promoted! {name} celebrates with the fans on the pitch"],["{club} מטפסת ל{league2}","{club} climb into the {league2}"],["עלייה עם החותמת של {name}: {gs} שערים העונה","Promotion with {name}'s stamp on it: {gs} goals this season",{"gs>=":8}]]},{"id":"relegation","tier":0,"cd":0,"when":{"event":"relegated"},"v":[["{club} יורדת ליגה. {name}: \"אני לא בורח\"","{club} go down. {name}: \"I'm not running away\"",{"loyal":true}],["ערב שחור ב{city}: {club} ירדה ליגה","A dark night in {city}: {club} are relegated"],["אחרי הירידה של {club}, השאלה הגדולה: מה יעשה {name}?","After {club}'s relegation, the big question: what will {name} do?"]]},{"id":"cup_final_win","tier":0,"cd":0,"when":{"after":"key","key":"cupfinal","result":"W"},"v":[["{club} זוכה ב{cup}! {name} חוגג על הדשא","{club} win the {cup}! {name} celebrates on the pitch"],["הגמר של {name}: שער, ניצחון ו{cup}","{name}'s final: a goal, a win and the {cup}",{"g>=":1}],["{name} מניף את {cup}. \"אף אחד לא ייקח לנו את זה\"","{name} lifts the {cup}. \"Nobody can take this from us\""]]},{"id":"cup_final_loss","tier":1,"cd":0,"when":{"after":"key","key":"cupfinal","result":"L"},"v":[["כל כך קרוב: {club} מפסידה בגמר {cup}","So close: {club} lose the {cup} final"],["{name} אחרי הגמר: \"נחזור לכאן\"","{name} after the final: \"We'll be back here\""],["הגביע הלך ל{opp}. {name} עם ציון {rating}","The cup goes to {opp}. {name} rated {rating}"]]},{"id":"captaincy","tier":1,"once":true,"when":{"event":"captain"},"v":[["{name} הוא הקפטן החדש של {club}","{name} is {club}'s new captain"],["הסרט עובר ל{name}: \"כבוד גדול\"","The armband passes to {name}: \"A huge honour\""],["רק בן {age} וכבר קפטן: {name} מוביל את {club}","Only {age} and already captain: {name} leads {club}",{"age<=":23}]]},{"id":"coach_change","tier":1,"cd":1,"when":{"event":"coachChange"},"v":[["{club} נפרדה מהמאמן. {name} יצטרך להוכיח את עצמו מחדש","{club} part ways with their coach. {name} must prove himself again"],["מאמן חדש ב{club}: כולם מתחילים מאפס","New coach at {club}: everyone starts from zero"],["המאמן החדש על {name}: \"אני רוצה לראות אותו באימונים\"","The new coach on {name}: \"I want to see him in training\""]]},{"id":"national_squad","tier":2,"cd":2,"when":{"event":"squadNamed"},"v":[["{name} בסגל הנבחרת למשחקים מול {opp}","{name} named in the squad to face {opp}",{"called":true}],["{name} לא זומן לנבחרת: \"אמשיך לדפוק על הדלת\"","{name} left out of the squad: \"I'll keep knocking on the door\"",{"called":false}],["מאמן הנבחרת: \"{name} קרוב. הוא צריך עוד קצת\"","National coach: \"{name} is close. He needs a little more\"",{"called":false,"rating>=":70}]]},{"id":"farewell","tier":0,"cd":0,"when":{"event":"farewell"},"v":[["עונת הפרידה של {name} מתחילה","{name}'s farewell season begins",{"phase":"start"}],["{name} נפרד: \"תודה על הכול\"","{name} says goodbye: \"Thank you for everything\"",{"phase":"end"}],["{name} תולה את הנעליים אחרי {seasons} עונות","{name} hangs up his boots after {seasons} seasons",{"phase":"end"}],["{apps} הופעות, {goals} שערים, אגדה אחת: {name} פורש","{apps} appearances, {goals} goals, one legend: {name} retires",{"phase":"end","goals>=":50}],["מחיאות כפיים ארוכות ל{name} במשחק האחרון שלו","A long ovation for {name} in his final game",{"phase":"end"}]]}],"fanPosts":[{"id":"after_win","tier":3,"cd":3,"when":{"after":"key","result":"W"},"v":[["gate5","איזה ערב!!! {club} עד המוות!!!","What a night!!! {club} till I die!!!"],["stats","{score}. {shots} בעיטות למסגרת. שליטה מלאה.","{score}. {shots} shots on target. Total control."],["grandpa","לא ראיתי משחק כזה מאז שהייתי צעיר. אולי אף פעם.","Haven't seen a game like that since I was young. Maybe ever."],["kid","אמא הרשתה לי להישאר ער עד הסוף!!! שווה!!!","Mum let me stay up till the end!!! Worth it!!!"],["doom","ניצחנו. בטח נפסיד בשבוע הבא. אבל ניצחנו.","We won. We'll probably lose next week. But we won."],["pod","פרק מיוחד הלילה: איך {club} פירקה את {opp}","Special episode tonight: how {club} took {opp} apart"],["away","טוב, הפעם מגיע לכם. רק הפעם.","Fine, you deserved that one. Just this once."],["gate5","שלוש נקודות והביתה לשיר!","Three points and home to sing!"]]},{"id":"after_goal","tier":3,"cd":3,"when":{"after":"key","g>=":1},"v":[["gate5","{name}!!! {name}!!! {name}!!!","{name}!!! {name}!!! {name}!!!"],["kid","אני הולכת לתלות את התמונה של {name} מעל המיטה","I'm putting {name}'s picture above my bed"],["stats","{name}: {gs} שערים העונה ב-{appsS} הופעות.","{name}: {gs} goals this season in {appsS} appearances."],["grandpa","{name} מזכיר לי את הכוכב הגדול שלנו מפעם. אותה בעיטה.","{name} reminds me of our great star of old. Same shot."],["pod","תגידו מה שתגידו, {name} הוא הסיפור של העונה","Say what you want, {name} is the story of the season"],["doom","יופי של שער. עכשיו בטח מישהו גדול יקנה אותו.","Lovely goal. Now some big club will buy him."],["mum","ראיתי מהיציע. בכיתי. אל תגיד לאף אחד.","I watched from the stands. I cried. Don't tell anyone.",{"once":"season"}]]},{"id":"after_assist","tier":3,"cd":3,"when":{"after":"key","g":0,"a>=":1},"v":[["stats","{name} עם {as} בישולים העונה. רק מעטים בליגה עם יותר.","{name} has {as} assists this season. Few in the league have more."],["gate5","איזה כדור של {name}!!! תנו לו את המפתחות!!!","What a ball from {name}!!! Give him the keys!!!"],["grandpa","פעם קראו לזה מסירה של קשר אמיתי. היום קוראים לזה {name}.","We used to call that a real playmaker's pass. Now we call it {name}."]]},{"id":"after_loss","tier":3,"cd":3,"when":{"after":"key","result":"L"},"v":[["doom","אמרתי לכם. אף אחד לא מקשיב לי.","I told you. Nobody listens to me."],["gate5","כואב. אבל אנחנו פה גם בשבוע הבא. תמיד.","It hurts. But we're here next week too. Always."],["stats","{score}. רק {shots} בעיטות למסגרת. לא מספיק.","{score}. Only {shots} shots on target. Not enough."],["pod","שלוש שאלות אחרי ההפסד ל{opp}, ואף תשובה","Three questions after the defeat to {opp}, and no answers"],["grandpa","גם בימים שלי הפסדנו. קמים מחר בבוקר וממשיכים.","We lost in my day too. You get up in the morning and carry on."],["away","מה קרה? שכחתם איך מנצחים?","What happened? Forgot how to win?"],["kid","לא נורא {name}, אני עדיין הכי אוהבת אותך","It's OK {name}, you're still my favourite"]]},{"id":"after_mistake","tier":3,"cd":3,"when":{"after":"key","ownMistake":true},"v":[["stats","הטעות של {name} בדקה {min} עלתה לנו בשער. זה קורה. לא אמור לקרות פעמיים.","{name}'s error in minute {min} cost a goal. It happens. It shouldn't happen twice."],["doom","ידעתי שזה יגיע. הוא עוד צעיר מדי למשחקים כאלה.","Knew it was coming. He's too young for games like this.",{"age<=":21}],["gate5","טעה? טעה. הוא שלנו. נעבור את זה יחד.","He made a mistake? So what. He's ours. We get through it together."],["pod","האם {name} צריך לשבת על הספסל במשחק הבא? הדיון פתוח","Should {name} be benched next game? The debate is open"],["grandpa","כל שחקן גדול טעה. מה שחשוב זה מה שהוא יעשה בשבוע הבא.","Every great player made mistakes. What matters is next week."]]},{"id":"derby","tier":3,"cd":3,"when":{"after":"key","key":"derby"},"v":[["gate5","השבוע הזה שלנו. כל העיר שלנו!!!","This week is ours. The whole city is ours!!!",{"result":"W"}],["away","נהנים? תיהנו. יש עוד סיבוב.","Enjoying it? Enjoy it. There's a second leg.",{"result":"W"}],["grandpa","ניצחון בדרבי שווה יותר משלוש נקודות. תמיד היה.","A derby win is worth more than three points. Always was.",{"result":"W"}],["away","העיר שלנו. תודה ל{name} על הבדיחה.","Our city. Thanks to {name} for the laughs.",{"result":"L","ownMistake":true}],["doom","שבוע שלם של הודעות מהחברים שלי מהצד השני. נהדר.","A whole week of messages from my mates on the other side. Great.",{"result":"L"}],["kid","לא הצלחתי להירדם כל הלילה. לא בגלל הדרבי. טוב, בגלל הדרבי.","Couldn't sleep all night. Not because of the derby. OK, because of the derby.",{"result":"L"}]]},{"id":"youngster","tier":3,"cd":3,"when":{"age<=":19,"appsS>=":3},"v":[["grandpa","תזכרו את השם {name}. אני אומר לכם.","Remember the name {name}. I'm telling you."],["pod","{name} בן {age}. בגיל שלו אני עוד לא ידעתי לקשור נעליים","{name} is {age}. At his age I couldn't tie my laces"],["stats","{name}: ממוצע {avg} בגיל {age}. נדיר.","{name}: average {avg} at {age}. Rare."],["doom","שלא יהרסו אותו. כל כישרון אצלנו נמכר בזיל הזול.","Don't let them ruin him. Every talent here gets sold cheap."]]},{"id":"rumour_reaction","tier":3,"cd":3,"when":{"window":true,"interest>=":1,"event":"rumour"},"v":[["gate5","{name} לא עוזב. אני מסרב להאמין.","{name} isn't leaving. I refuse to believe it."],["doom","כמו כל שנה. הטובים הולכים.","Same as every year. The good ones leave."],["pod","אם {club2} באמת רוצה את {name}, {club} צריכה לבקש הרבה","If {club2} really want {name}, {club} should ask for a lot"],["kid","{name} תישאר!!! בבקשה!!!","{name} stay!!! please!!!"],["away","קחו אותו כבר. בבקשה. לטובת הדרבי.","Take him already. Please. For the sake of the derby."]]},{"id":"leaving","tier":3,"cd":3,"when":{"event":"transfer"},"v":[["gate5","תודה על הכול, {name}. תמיד תהיה אחד משלנו.","Thank you for everything, {name}. You'll always be one of us.",{"mood":"grateful"}],["doom","עוד אחד הלך. מי הבא?","Another one gone. Who's next?",{"mood":"sad"}],["grandpa","ככה זה בכדורגל. מגדלים, והם עפים.","That's football. You raise them, and they fly.",{"mood":"sad"}],["pod","{name} הבטיח שהוא לא עוזב. הוא עוזב.","{name} promised he wasn't leaving. He's leaving.",{"mood":"angry","flag":"promisedLoyalty"}],["kid","אני אוהבת עכשיו גם את {club2}. רק בגלל {name}.","Now I like {club2} too. Only because of {name}.",{"mood":"grateful"}]]},{"id":"comeback","tier":3,"cd":3,"when":{"event":"return","weeksOut>=":6},"v":[["gate5","הוא חזר!!! שמעתם את היציע?!","He's back!!! Did you hear the stands?!"],["grandpa","חזרה מפציעה כזאת? זה אופי.","Coming back from an injury like that? That's character."],["mum","הלילות בבית החולים מאחורינו. אני גאה בך.","The hospital nights are behind us. I'm proud of you.",{"once":"career"}]]},{"id":"milestone","tier":3,"cd":3,"when":{"event":"milestone"},"v":[["stats","{name}: {n} {statname}. רק {rank} שחקנים במועדון עשו את זה.","{name}: {n} {statname}. Only {rank} players at the club have done it."],["gate5","{n}!!! והוא רק מתחיל!!!","{n}!!! And he's only getting started!!!"]]},{"id":"farewell","tier":3,"cd":3,"when":{"event":"farewell","phase":"end"},"v":[["gate5","לא בוכים. טוב, בוכים. תודה {name}.","We don't cry. OK, we cry. Thank you {name}."],["grandpa","ראיתי אותו בגיל 15 באקדמיה. ראיתי אותו היום. איזו דרך.","I saw him at 15 in the academy. I saw him today. What a road."],["away","נגיד את האמת: היה כיף לשנוא אותו. כל הכבוד, {name}.","Let's be honest: he was fun to hate. Respect, {name}."],["kid","כשאהיה גדולה אני אהיה {name}.","When I grow up I'll be {name}."],["mum","הילד שלי. {seasons} עונות. בוא הביתה לארוחת ערב.","My boy. {seasons} seasons. Come home for dinner."]]}],"press":[{"id":"star_now","tier":2,"cd":2,"when":{"after":"key","result":"W","g+a>=":2},"q":["ערב גדול. אתה הכוכב של הקבוצה עכשיו?","Big night. Are you the team's star now?"],"a":[{"t":["\"אני רק מתחיל. תחכו לסוף העונה.\"","\"I'm only getting started. Wait till the end of the season.\""],"fx":{"fame":2,"trust":-1},"flag":"boast","tone":"bold"},{"t":["\"יש לנו אחד עשר כוכבים. היום היה תורי.\"","\"We have eleven stars. Tonight was my turn.\""],"fx":{"trust":2,"fans":1},"flag":"teamFirst","tone":"team"},{"t":["\"מחר בבוקר יש אימון.\"","\"There's training tomorrow morning.\""],"fx":{},"tone":"safe"}]},{"id":"who_blame","tier":2,"cd":2,"when":{"after":"key","result":"L"},"q":["מי אשם בהפסד הערב?","Who's to blame for tonight's defeat?"],"a":[{"t":["\"אני. הייתה לי הזדמנות ולא ניצלתי.\"","\"Me. I had my chance and didn't take it.\""],"fx":{"fans":2,"trust":1,"energy":-3},"flag":"ownsIt","tone":"bold"},{"t":["\"תשאלו את השופט.\"","\"Ask the referee.\""],"fx":{"fans":1,"fame":1,"trust":-2},"flag":"blamesRef","tone":"bold"},{"t":["\"כולנו. ונלמד מזה.\"","\"All of us. And we'll learn from it.\""],"fx":{},"tone":"safe"}]},{"id":"interest","tier":2,"cd":2,"when":{"window":true,"interest>=":1},"q":["{club2} מתעניינת בך. אתה רוצה לעבור?","{club2} are interested in you. Do you want to move?"],"a":[{"t":["\"כל ילד חולם לשחק ברמה כזאת.\"","\"Every kid dreams of playing at that level.\""],"fx":{"offers":1,"fans":-2,"trust":-1},"flag":"openToMove","tone":"bold"},{"t":["\"אני אוהב את המועדון הזה. אני נשאר.\"","\"I love this club. I'm staying.\""],"fx":{"fans":2,"trust":1},"flag":"promisedLoyalty","tone":"bold"},{"t":["\"אני לא מתעסק בשמועות.\"","\"I don't deal in rumours.\""],"fx":{},"tone":"safe"}]},{"id":"derby_promise","tier":2,"cd":2,"when":{"before":"key","key":"derby"},"q":["מה אתה אומר לאוהדים לפני הדרבי?","What's your message to the fans before the derby?"],"a":[{"t":["\"תביאו את הדגלים. אנחנו מנצחים.\"","\"Bring your flags. We're winning this.\""],"fx":{"fame":1,"pressure":1},"flag":"derbyPromise","later":{"W":{"fans":3},"L":{"fans":-3}},"tone":"bold"},{"t":["\"זה עוד משחק. שלוש נקודות כמו כל משחק.\"","\"It's just another game. Three points like any other.\""],"fx":{"fans":-2,"trust":1},"flag":"coolHead","tone":"bold"},{"t":["\"הם יודעים כמה זה חשוב לנו.\"","\"They know how much it means to us.\""],"fx":{},"tone":"safe"}]},{"id":"rival_jab","tier":2,"cd":3,"when":{"rival":true,"season>=":2},"q":["{rival} אמר שהוא יסיים העונה מעליך. תגובה?","{rival} says he'll finish above you this season. Your reply?"],"a":[{"t":["\"שידבר. אני אענה על המגרש.\"","\"Let him talk. I'll answer on the pitch.\""],"fx":{"fame":1,"rival":1},"flag":"rivalryHot","tone":"bold"},{"t":["\"אני מאחל לו בהצלחה. באמת.\"","\"I wish him luck. Honestly.\""],"fx":{"fans":1,"rival":-1},"flag":"rivalryRespect","tone":"bold"},{"t":["\"אין לי מה להוסיף.\"","\"Nothing to add.\""],"fx":{},"tone":"safe"}]},{"id":"bench_frustration","tier":2,"cd":2,"when":{"benchedLast>=":2},"q":["עוד משחק על הספסל. אתה מתוסכל?","Another game on the bench. Frustrated?"],"a":[{"t":["\"כן. אני צריך לשחק, ואני אומר את זה בקול.\"","\"Yes. I need to play, and I'm saying it out loud.\""],"fx":{"trust":-3,"offers":1,"fans":1},"flag":"wantsOut","tone":"bold"},{"t":["\"המאמן מחליט. אני עובד ומחכה.\"","\"The coach decides. I work and I wait.\""],"fx":{"trust":2},"flag":"patient","tone":"bold"},{"t":["\"כל שחקן רוצה לשחק.\"","\"Every player wants to play.\""],"fx":{},"tone":"safe"}]},{"id":"final_nerves","tier":2,"cd":1,"when":{"before":"key","key":["cupfinal","contfinal","title"]},"q":["אתה לחוץ לפני משחק כזה?","Nervous before a game like this?"],"a":[{"t":["\"אני חי בשביל הרגעים האלה.\"","\"I live for moments like this.\""],"fx":{"fame":1},"flag":"clutchClaim","later":{"W":{"fame":2},"L":{"fame":-1}},"tone":"bold"},{"t":["\"כן. ומי שאומר שלא, משקר.\"","\"Yes. Anyone who says they aren't is lying.\""],"fx":{"fans":2},"flag":"honest","tone":"bold"},{"t":["\"אנחנו מוכנים.\"","\"We're ready.\""],"fx":{},"tone":"safe"}]},{"id":"injury_fear","tier":2,"cd":3,"when":{"event":"return","weeksOut>=":8},"q":["פחדת שלא תחזור?","Were you afraid you wouldn't come back?"],"a":[{"t":["\"היו לילות קשים. אני לא אשקר.\"","\"There were hard nights. I won't lie.\""],"fx":{"fans":2},"flag":"opened","tone":"bold"},{"t":["\"אף פעם. ידעתי שאחזור חזק יותר.\"","\"Never. I knew I'd come back stronger.\""],"fx":{"fame":1},"flag":"steel","later":{"ratingDropNext":{"fame":-1}},"tone":"bold"},{"t":["\"אני שמח לחזור. רק זה חשוב.\"","\"I'm happy to be back. That's all that matters.\""],"fx":{},"tone":"safe"}]},{"id":"captain_plan","tier":2,"cd":2,"once":true,"when":{"event":"captain"},"q":["מה תשנה כקפטן?","What will you change as captain?"],"a":[{"t":["\"דיבור ישיר בחדר ההלבשה. בלי פוליטיקה.\"","\"Straight talk in the dressing room. No politics.\""],"fx":{"trust":2,"fans":1},"flag":"hardCaptain","tone":"bold"},{"t":["\"כלום. אני אוביל בדוגמה אישית.\"","\"Nothing. I'll lead by example.\""],"fx":{"trust":1,"energy":-2},"flag":"quietCaptain","tone":"bold"},{"t":["\"קודם כול להודות למאמן על האמון.\"","\"First, thank the coach for the trust.\""],"fx":{},"tone":"safe"}]},{"id":"contract_q","tier":2,"cd":2,"when":{"contractYearsLeft<=":1},"q":["החוזה שלך מסתיים. תחתום על הארכה?","Your contract is running out. Will you extend?"],"a":[{"t":["\"אם יכבדו אותי, נדבר.\"","\"If they respect me, we'll talk.\""],"fx":{"wageLeverage":1,"fans":-1,"trust":-1},"flag":"hardBargain","tone":"bold"},{"t":["\"אני רוצה לסיים את הקריירה כאן.\"","\"I want to finish my career here.\""],"fx":{"fans":2,"wageLeverage":-1},"flag":"promisedLoyalty","tone":"bold"},{"t":["\"הסוכן שלי מטפל בזה.\"","\"My agent is handling it.\""],"fx":{},"tone":"safe"}]},{"id":"nat_snub","tier":2,"cd":2,"when":{"event":"squadNamed","called":false,"rating>=":70},"q":["לא זומנת לנבחרת. איך אתה מרגיש?","You weren't called up. How do you feel?"],"a":[{"t":["\"מאמן הנבחרת טועה. הוא יראה.\"","\"The national coach is wrong. He'll see.\""],"fx":{"fame":1,"natTrust":-2},"flag":"snubAngry","tone":"bold"},{"t":["\"זה אומר שאני צריך לעבוד קשה יותר.\"","\"It means I have to work harder.\""],"fx":{"natTrust":2},"flag":"snubWork","tone":"bold"},{"t":["\"אני מאחל לחבר׳ה בהצלחה.\"","\"I wish the lads luck.\""],"fx":{},"tone":"safe"}]},{"id":"pundit_hit","tier":2,"cd":3,"when":{"after":"key","avgS<":6.6,"appsS>=":6},"q":["פרשן בטלוויזיה אמר שאתה מוערך יותר מדי. תגובה?","A TV pundit said you're overrated. Your reply?"],"a":[{"t":["\"שיבוא להתאמן איתי שבוע. נראה מה יגיד אחר כך.\"","\"Let him train with me for a week. Then we'll see.\""],"fx":{"fame":2,"fans":1,"trust":-1},"flag":"feud","tone":"bold"},{"t":["\"הוא צודק שיש לי מה לשפר.\"","\"He's right that I have things to improve.\""],"fx":{"trust":2,"fame":-1},"flag":"humble","tone":"bold"},{"t":["\"אני לא רואה טלוויזיה.\"","\"I don't watch TV.\""],"fx":{},"tone":"safe"}]},{"id":"coach_pressure","tier":2,"cd":2,"when":{"coachUnderPressure":true},"q":["המאמן בסכנה. השחקנים איתו?","The coach is under pressure. Are the players behind him?"],"a":[{"t":["\"כולנו מאחוריו. מאה אחוז.\"","\"We're all behind him. A hundred percent.\""],"fx":{"trust":3},"flag":"backedCoach","later":{"coachSacked":{"newCoachTrust":-3}},"tone":"bold"},{"t":["\"את זה צריך לשאול את ההנהלה.\"","\"That's a question for the board.\""],"fx":{"trust":-3,"fame":1},"flag":"coldOnCoach","later":{"coachSacked":{"newCoachTrust":2}},"tone":"bold"},{"t":["\"אנחנו מרוכזים במשחק הבא.\"","\"We're focused on the next game.\""],"fx":{},"tone":"safe"}]},{"id":"abroad_settle","tier":2,"cd":5,"when":{"abroad":true,"monthsAtClub<=":6},"q":["איך ההסתגלות לחיים כאן?","How are you settling in here?"],"a":[{"t":["\"קשה. אני מתגעגע הביתה, ואני לא מתבייש בזה.\"","\"Hard. I miss home, and I'm not ashamed of it.\""],"fx":{"fans":1},"flag":"homesickOpen","tone":"bold"},{"t":["\"אני כבר מרגיש בבית. אפילו למדתי להזמין קפה בשפה המקומית.\"","\"I already feel at home. I can even order coffee in the local language.\""],"fx":{"fame":1,"fans":1},"flag":"settledClaim","later":{"formDrop":{"fame":-1}},"tone":"bold"},{"t":["\"כל יום קצת יותר טוב.\"","\"Every day a bit better.\""],"fx":{},"tone":"safe"}]},{"id":"hattrick_ball","tier":2,"cd":2,"when":{"after":"key","g>=":3},"q":["מה תעשה עם הכדור של השלושער?","What will you do with the hat-trick ball?"],"a":[{"t":["\"הוא הולך לאמא. היא הסיעה אותי לכל האימונים.\"","\"It's going to my mum. She drove me to every training session.\""],"fx":{"fans":2},"flag":"family","tone":"bold"},{"t":["\"ישר לארון. ואני רוצה עוד אחד ליד.\"","\"Straight into the cabinet. And I want another one next to it.\""],"fx":{"fame":2},"flag":"hungry","tone":"bold"},{"t":["\"נחתים אותו על ידי כל החברים.\"","\"I'll get all the lads to sign it.\""],"fx":{"trust":1},"tone":"safe"}]},{"id":"survival_promise","tier":2,"cd":2,"when":{"tableZone":"bottom","roundsLeft<=":8},"q":["אתה מבטיח לאוהדים שהקבוצה תישאר בליגה?","Do you promise the fans the team will stay up?"],"a":[{"t":["\"מבטיח. תרשמו את זה.\"","\"I promise. Write it down.\""],"fx":{"fame":1,"pressure":1},"flag":"survivalPromise","later":{"survived":{"fans":3},"relegated":{"fans":-3}},"tone":"bold"},{"t":["\"אני לא מבטיח. אני נלחם.\"","\"I don't make promises. I fight.\""],"fx":{"fans":1,"trust":1},"flag":"fighter","tone":"bold"},{"t":["\"משחק אחרי משחק.\"","\"One game at a time.\""],"fx":{},"tone":"safe"}]}],"arcs":[{"id":"first_team","pr":9,"when":{"seniorSeason":1},"open":["עונה ראשונה בבוגרים. המטרה: {target} הופעות. האיום: המאמן לא מכיר אותך.","First senior season. The goal: {target} appearances. The threat: the coach doesn't know you yet."],"goal":{"k":"apps","target":10},"mid":["ותיק בקבוצה נפצע. לפתע יש מקום פנוי בהרכב, ועיני המאמן עליך.","A veteran gets injured. Suddenly there's a place in the line-up, and the coach is watching you."],"climax":["המשחק האחרון של העונה. עוד הופעה טובה, והמקום שלך בסגל מובטח.","The last game of the season. One more good showing and your place in the squad is secure."],"cliff":["בקיץ ראו סקאוט של {club2} בטריבונה. מישהו שם לב אליך.","This summer a {club2} scout was in the stands. Someone has noticed you."]},{"id":"title_race","pr":7,"when":{"tableZone":"top","tierRank<=":3},"open":["{club} מתחילה את העונה כמועמדת לאליפות. המטרה: {target} שערים ובישולים. האיום: {rivalClub}.","{club} start the season as title contenders. The goal: {target} goals and assists. The threat: {rivalClub}."],"goal":{"k":"ga","target":12},"mid":["שלושה משחקים בלי ניצחון. בעיתונים כבר כותבים \"משבר\", והפער מ{rivalClub} נסגר.","Three games without a win. The papers are saying \"crisis\", and {rivalClub} are closing the gap."],"climax":["קרב האליפות. כל העונה מתנקזת לתשעים דקות.","The title decider. The whole season comes down to ninety minutes."],"cliff":["אלופה? בעונה הבאה מחכה הבמה היבשתית. לא? ההנהלה מחפשת אשמים, ואתה ברשימה.","Champions? Next comes the continental stage. If not, the board is looking for culprits, and you're on the list."]},{"id":"survival","pr":7,"when":{"tableZone":"bottom"},"open":["כולם מנבאים ל{club} ירידה. המטרה: ממוצע {target}+ ולהישאר בליגה. האיום: כל נקודה.","Everyone predicts {club} will go down. The goal: a {target}+ average and survival. The threat: every single point."],"goal":{"k":"avg","target":6.9},"mid":["מאמן חדש הגיע לחלץ את הקבוצה. הוא עוד לא החליט עליך.","A new coach arrives to save the team. He hasn't made up his mind about you."],"climax":["קרב ההישרדות. ניצחון, וכל העונה נשכחת.","The relegation decider. A win, and the whole season is forgiven."],"cliff":["נשארתם? הגדולות כבר מתקשרות לסוכן שלך. ירדתם? יש לך סעיף שחרור.","Stayed up? The big clubs are already calling your agent. Went down? There's a release clause in your contract."]},{"id":"comeback","pr":8,"when":{"injuryWeeksLastSeason>=":8},"open":["אחרי הפציעה, אף אחד לא בטוח שאתה אותו שחקן. המטרה: {target} הופעות בלי פציעה חוזרת.","After the injury, nobody's sure you're the same player. The goal: {target} appearances without breaking down again."],"goal":{"k":"apps","target":15},"mid":["הברך מחזיקה. בפעם הראשונה מאז הניתוח, אתה מפסיק לחשוב עליה.","The knee is holding. For the first time since the surgery, you stop thinking about it."],"climax":["משחק גדול, לחץ גדול. ההוכחה שחזרת.","A big game, big pressure. The proof that you're back."],"cliff":["רופא המועדון: \"זה הגוף הכי חזק שהיה לך.\" המאמן כבר מתכנן עליך לעונה הבאה.","The club doctor: \"Your body has never been stronger.\" The coach is already planning around you for next season."]},{"id":"new_coach","pr":6,"when":{"coachChangedThisSummer":true},"open":["מאמן חדש, דף חלק. מה שעשית בעבר לא נחשב. המטרה: להגיע לאמון {target}.","New coach, clean slate. Nothing you did before counts. The goal: reach trust {target}."],"goal":{"k":"trust","target":70},"mid":["המאמן הביא איתו שחקן מהקבוצה הקודמת שלו, באותה עמדה בדיוק.","The coach has brought a player from his old club, in exactly your position."],"climax":["משחק שבו המאמן החדש מחליט מי שלו ומי לא.","The game where the new coach decides who's his and who isn't."],"cliff":["המאמן קורא לך למשרד בסוף העונה: \"יש לי תוכניות בשבילך.\" לא ברור אם זה טוב.","At season's end the coach calls you in: \"I have plans for you.\" It's not clear if that's good."]},{"id":"contract_year","pr":6,"when":{"contractYearsLeft<=":1},"open":["השנה האחרונה בחוזה. כל משחק הוא ראיון עבודה. המטרה: ממוצע {target}+.","The last year of your contract. Every game is a job interview. The goal: a {target}+ average."],"goal":{"k":"avg","target":7},"mid":["בחלון של ינואר מותר לך כבר לדבר עם מועדונים אחרים. הטלפון מצלצל.","In January you're allowed to talk to other clubs. The phone is ringing."],"climax":["המשחק האחרון, אולי האחרון שלך כאן. כל העיניים עליך.","The last game, maybe your last here. All eyes on you."],"cliff":["שתי הצעות על השולחן: הארכה מהמועדון, וחוזה כפול מחו״ל. אתה מחליט בקיץ.","Two offers on the table: an extension from the club, and double the money from abroad. You decide in the summer."]},{"id":"abroad_first","pr":8,"when":{"abroad":true,"firstSeasonAtClub":true,"firstAbroad":true},"open":["ארץ חדשה, שפה חדשה, אף חבר. המטרה: {target} הופעות ולהתאקלם.","A new country, a new language, no friends. The goal: {target} appearances and settling in."],"goal":{"k":"apps","target":12},"mid":["שלושה חודשים בלי המשפחה. ערב אחד אתה בוהה בטלפון ולא מתקשר לאף אחד.","Three months without your family. One evening you stare at your phone and call nobody."],"climax":["משחק שבו הקהל המקומי מחליט אם אתה אחד משלהם.","The game where the local crowd decides whether you're one of them."],"cliff":["בסוף העונה, ילד ברחוב קורא לך בשמך. במבטא מקומי.","At the end of the season, a kid in the street calls out your name. In a local accent."]},{"id":"captain_year","pr":5,"when":{"captain":true,"firstSeasonAsCaptain":true},"open":["סרט הקפטן על הזרוע. המטרה: להוביל, ממוצע {target}+. האיום: ותיק שרצה את הסרט.","The armband is yours. The goal: lead, with a {target}+ average. The threat: a veteran who wanted it."],"goal":{"k":"avg","target":7},"mid":["ריב בחדר ההלבשה בין שני שחקנים. כולם מסתכלים עליך.","A dressing-room fight between two players. Everyone looks at you."],"climax":["משחק שבו קפטן נמדד: בפיגור, בחוץ, מול קהל עוין.","The game that measures a captain: behind, away, in a hostile ground."],"cliff":["הצעיר מהאקדמיה אומר לך: \"אני רוצה להיות קפטן כמוך.\" ועכשיו אתה גם מנטור.","The academy kid tells you: \"I want to be a captain like you.\" Now you're a mentor too."]},{"id":"rival_teammate","pr":7,"when":{"rivalAtSameClub":true},"open":["{rival} חתם בקבוצה שלך. אותה עמדה, אותו חדר הלבשה. המטרה: לסיים מעליו.","{rival} has signed for your club. Same position, same dressing room. The goal: finish above him."],"goal":{"k":"beatRival","target":1},"mid":["המאמן מחליט ש{rival} פותח בדרבי. אתה על הספסל.","The coach picks {rival} to start the derby. You're on the bench."],"climax":["המאמן נותן לשניכם לפתוח יחד. יריבים או שותפים? תחליט על המגרש.","The coach starts you both. Rivals or partners? You decide on the pitch."],"cliff":["{rival} מבקש לעזוב בקיץ. או שהוא נשאר ומבקש את המספר שלך.","{rival} asks to leave in the summer. Or he stays and asks for your shirt number."]},{"id":"loan","pr":8,"when":{"onLoan":true},"open":["השאלה ל{club}. מגרש קשה, נסיעות ארוכות, אף אחד לא מכיר אותך. המטרה: {target} הופעות.","On loan at {club}. Tough pitches, long trips, nobody knows you. The goal: {target} appearances."],"goal":{"k":"apps","target":18},"mid":["חצי עונה. הבנת שכאן אף אחד לא נותן לך כלום בחינם. וזה עושה לך טוב.","Half a season in. You've learned nobody here gives you anything for free. And it's good for you."],"climax":["משחק שבו המועדון שלך שולח מישהו לצפות בך.","The game your parent club sends someone to watch."],"cliff":["הטלפון ממועדון האם: \"תחזור. יש לך מקום.\" או: \"עוד שנה בהשאלה.\"","The call from your parent club: \"Come back. There's a place for you.\" Or: \"Another year on loan.\""]},{"id":"farewell","pr":10,"when":{"farewell":true},"open":["עונת הפרידה. המטרה: לצאת בגדול. {target} הופעות אחרונות.","The farewell season. The goal: go out on a high. {target} last appearances."],"goal":{"k":"apps","target":15},"mid":["בכל מגרש בחוץ, קהל היריבה מוחא לך כפיים כשאתה מוחלף. זה מוזר. וזה נעים.","At every away ground, the home fans applaud when you're subbed off. It's strange. And it's nice."],"climax":["משחק הפרידה. כל מי שהיה חלק מהדרך נמצא ביציע.","The farewell match. Everyone who was part of the journey is in the stands."],"cliff":["המועדון מציע לך תפקיד: מאמן הנוער. ילד בן 15 מחכה לך במגרש.","The club offers you a role: youth coach. A 15-year-old is waiting for you on the pitch."]},{"id":"big_money","pr":6,"when":{"transferFeeRank<=":3,"firstSeasonAtClub":true},"open":["השחקן היקר בתולדות {club}. כולם מחכים לראות על מה שילמו. המטרה: {target} שערים ובישולים.","The most expensive signing in {club}'s history. Everyone wants to see what they paid for. The goal: {target} goals and assists."],"goal":{"k":"ga","target":15},"mid":["חמישה משחקים בלי שער. בטלוויזיה מראים את המספר של העסקה ליד התמונה שלך.","Five games without a goal. On TV they show your fee next to your picture."],"climax":["משחק שבו מחיר הוא רק מספר, או המספר היחיד שזוכרים.","The game where a price tag is just a number, or the only number people remember."],"cliff":["בקיץ, המועדון קונה שחקן יקר עוד יותר. באותה עמדה.","In the summer, the club buys an even more expensive player. In your position."]},{"id":"ordinary","pr":1,"when":{},"open":["עונה חדשה ב{club}. המטרה של המאמן: {target}. המטרה שלך: יותר.","A new season at {club}. The coach's target: {target}. Yours: more."],"goal":{"k":"auto"},"mid":["אמצע העונה. {club} במקום {pos}. יש עוד הכול לשחק.","Mid-season. {club} sit {posOrd}. Everything is still to play for."],"climax":["המשחק הגדול של העונה: {label} מול {opp}.","The big game of the season: {label} against {opp}."],"cliff":["בקיץ: {hook}","This summer: {hook}"]}],"seasonHooks":[{"when":{"interest>=":1},"t":["{club2} שלחה סקאוט לשלושה משחקים ברצף.","{club2} sent a scout to three games in a row."]},{"when":{"contractYearsLeft<=":1},"t":["נשארה לך שנה אחת בחוזה.","You have one year left on your contract."]},{"when":{"age>=":30},"t":["הגוף מרגיש את הגיל. שעון הקריירה מתקתק.","Your body feels its age. The career clock is ticking."]},{"when":{"youngStar":true},"t":["כוכב צעיר מהאקדמיה מתאמן איתך. הוא מהיר יותר ממך.","A young star from the academy trains with you. He's quicker than you."]},{"when":{"natClose":true},"t":["מאמן הנבחרת היה ביציע. פעמיים.","The national coach was in the stands. Twice."]},{"when":{"promoted":true},"t":["בעונה הבאה: ליגה גבוהה יותר, יריבים חזקים יותר, מגרשים מלאים.","Next season: a higher league, stronger opponents, full grounds."]},{"when":{},"t":["המאמן רוצה לשוחח איתך לפני תחילת ההכנה.","The coach wants a word with you before pre-season."]}],"coachQuotes":[{"id":"academy_good","tier":3,"cd":3,"when":{"academy":true,"trust>=":55},"v":[["יש לו משהו שאי אפשר ללמד. עכשיו צריך סבלנות.","He has something you can't teach. Now we need patience."],["הוא הראשון שמגיע לאימון והאחרון שהולך. זה לא מקרי.","First to training, last to leave. That's no accident."],["עוד שנה כזאת והבוגרים ידפקו לו על הדלת.","One more year like this and the first team will come knocking."]]},{"id":"academy_push","tier":3,"cd":3,"when":{"academy":true,"trust<":55},"v":[["הכישרון קיים. העבודה עוד לא.","The talent is there. The work isn't yet."],["הוא צריך להבין שבאימונים מנצחים את המשחקים.","He needs to learn that games are won in training."],["ראיתי הרבה ילדים מוכשרים שנעלמו. אני לא רוצה שזה יקרה לו.","I've seen plenty of gifted kids disappear. I don't want that for him."]]},{"id":"bench_reason","tier":3,"cd":3,"when":{"benched":true},"v":[["הוא בתוכניות שלי. הוא פשוט צריך לחכות לרגע שלו.","He's in my plans. He just has to wait for his moment."],["הקבוצה ניצחה בהרכב הזה. אני לא משנה הרכב מנצח.","The team won with this line-up. I don't change a winning side."],["באימונים השבוע ראיתי אנשים רעבים יותר.","In training this week I saw hungrier players.",{"trust<":40}],["הוא יקבל דקות. כשהוא ייכנס, אני רוצה לראות אש.","He'll get minutes. When he comes on, I want to see fire."]]},{"id":"praise","tier":3,"cd":3,"when":{"after":"key","rating>=":7.8},"v":[["ממוצע {avg}. כרגע הוא השחקן הכי חשוב שלי.","An average of {avg}. Right now he's my most important player."],["אני לא מתפלא. ככה הוא מתאמן כל יום.","I'm not surprised. That's how he trains every day."],["שחקנים כאלה מנצחים לך משחקים לבד. אנחנו בני מזל.","Players like that win you games on their own. We're lucky."],["ביקשתי ממנו דבר אחד היום, והוא עשה שלושה.","I asked him for one thing today, and he did three."]]},{"id":"critique","tier":3,"cd":3,"when":{"after":"key","rating<":6.2},"v":[["היום הוא לא היה בעניינים. זה קורה, אבל לא יותר מדי פעמים.","He wasn't at it today. It happens, but not too often."],["אני מצפה ליותר. גם הוא מצפה מעצמו ליותר.","I expect more. He expects more from himself too."],["ממוצע {avg} לא מספיק לשחקן ברמה שלו.","An average of {avg} isn't enough for a player of his level."],["נדבר בחדר. לא בתקשורת.","We'll talk in the dressing room. Not in the media."]]},{"id":"regular","tier":3,"cd":3,"once":true,"when":{"event":"becameRegular"},"v":[["הוא הרוויח את המקום שלו. עכשיו הוא צריך לשמור עליו.","He has earned his place. Now he has to keep it."],["מהיום הוא בהרכב. זה לא מתנה, זה שכר.","From today he starts. It's not a gift, it's a reward."]]},{"id":"contract_talk","tier":3,"cd":3,"when":{"event":"renewal"},"v":[["ביקשתי מההנהלה לשמור אותו. אני שמח שהקשיבו.","I asked the board to keep him. I'm glad they listened."],["הוא חלק מהעתיד של המועדון. מהיום זה גם רשמי.","He's part of the club's future. Now it's official too."]]}],"punditLines":[{"id":"praise","tier":3,"cd":2,"when":{"avgS>=":7.1},"v":[["\"{name} עם {gs} שערים ו-{as} בישולים. הוא מוכן לליגה גדולה יותר?\"","\"{name} has {gs} goals and {as} assists. Is he ready for a bigger league?\""],["\"לא ראיתי בגיל {age} שחקן שמבין את המשחק ככה.\"","\"I haven't seen anyone understand the game like that at {age}.\""],["\"אם {name} היה במועדון גדול, כולם היו מדברים עליו.\"","\"If {name} played for a big club, everyone would be talking about him.\"",{"clubRep<":70}]]},{"id":"doubt","tier":3,"cd":2,"when":{"avgS<":6.5,"appsS>=":6},"v":[["\"ממוצע {avg} ב-{appsS} משחקים. זה לא מספיק לשחקן ברמה שלו.\"","\"An average of {avg} in {appsS} games. Not enough for a player of his level.\""],["\"הייתה הרבה התלהבות. הגיע הזמן לראות מספרים.\"","\"There was a lot of hype. Time to see some numbers.\""],["\"אולי הוא צריך השאלה. דקות משחק, לא ספסל.\"","\"Maybe he needs a loan. Minutes, not the bench.\"",{"age<=":21}]]}],"coachInstructions":[{"id":"simple","t":["\"היום משחקים פשוט. בלי גבורה.\"","\"Keep it simple today. No heroics.\""]},{"id":"shoot","t":["\"כל פעם שיש לך חצי מטר — תבעט.\"","\"Every time you get half a yard — shoot.\""]},{"id":"feed","t":["\"תחפש את החלוץ. הוא בכושר של החיים שלו.\"","\"Look for the striker. He's in the form of his life.\""]},{"id":"defend","t":["\"קודם כול תעזור להגנה. השערים יגיעו.\"","\"Help the defence first. The goals will come.\""]},{"id":"press","t":["\"תלחץ אותם מהדקה הראשונה. אל תיתן להם לנשום.\"","\"Press them from the first minute. Don't let them breathe.\""]},{"id":"brave","t":["\"קח אותם אחד על אחד. אני סומך עליך.\"","\"Take them on. I trust you.\""]},{"id":"gk_calm","t":["\"תישאר על הקו ותדבר עם ההגנה.\"","\"Stay on your line and talk to the defence.\""]},{"id":"gk_brave","t":["\"תצא לכל כדור גבוה. הרחבה שלך.\"","\"Come for every high ball. The box is yours.\""]}],"events":[{"id":"language","min":18,"max":36,"when":{"abroad":true,"monthsAtClub>=":2,"monthsAtClub<=":8},"once":true,"flag":"language","t":["שלושה חודשים בחו״ל, ואתה עדיין לא מבין את התדריכים.","Three months abroad, and you still can't follow the team talks."],"o":[{"t":["מורה פרטי, שלוש פעמים בשבוע","A private tutor, three times a week"],"p":1,"k":"tutor","fx":{"money":-0.02,"trust":3,"energy":-4},"ok":["אחרי חודש, צחקת על בדיחה של המאמן. בזמן.","A month later, you laughed at the coach's joke. On time."]},{"t":["להיצמד לחבר שמתרגם","Stick with a team-mate who translates"],"p":1,"k":"buddy","fx":{"chem":6},"ok":["נוצרה חברות. השפה עדיין לא.","A friendship formed. The language, not yet."]},{"t":["ללמוד מהמגרש, בלי שיעורים","Learn on the pitch, no lessons"],"p":0.5,"k":"pitch","fx":{},"ok":["כדורגל זו שפה בינלאומית. הסתדרת.","Football is an international language. You managed."],"fail":["פספסת שתי הוראות טקטיות. אמון −4.","You missed two tactical instructions. Trust −4."],"failFx":{"trust":-4,"form":-5}}]},{"id":"family_visit","min":18,"max":36,"when":{"abroad":true,"homesickFlag":true},"flag":"familyVisit","t":["המשפחה מגיעה לבקר לשבוע. בדיוק בשבוע של משחק גדול.","Your family is visiting for a week. Right in the week of a big game."],"o":[{"t":["לארח אותם כל הערבים","Host them every evening"],"p":1,"k":"host","fx":{"form":8,"energy":-6},"ok":["חזרת לחייך. רואים את זה גם במגרש.","You're smiling again. It shows on the pitch too."]},{"t":["לשמור על השגרה ולהיפגש בסוף השבוע","Keep your routine and meet at the weekend"],"p":1,"k":"routine","fx":{"energy":4},"ok":["הם הבינו. אמא קצת פחות.","They understood. Mum, a little less."]}]},{"id":"social_storm","min":17,"max":38,"when":{"after":"key","ownMistake":true},"cd":3,"flag":"storm","t":["הסרטון של הטעות שלך עבר מיליון צפיות. התגובות לא נעימות.","The clip of your mistake has a million views. The comments aren't kind."],"o":[{"t":["לפרסם התנצלות קצרה","Post a short apology"],"p":0.7,"k":"apology","fx":{},"ok":["רוב האוהדים איתך. \"קורה לטובים.\"","Most fans are with you. \"Happens to the best.\""],"okFx":{"fans":2},"fail":["זה רק הוסיף שמן למדורה.","It only added fuel to the fire."],"failFx":{"fans":-1}},{"t":["למחוק את האפליקציה לשבוע","Delete the app for a week"],"p":1,"k":"offline","fx":{"form":4},"ok":["שבוע של שקט. הראש נקי למשחק הבא.","A week of quiet. A clear head for the next game."]},{"t":["לענות למגיבים","Reply to the commenters"],"p":0.2,"k":"reply","fx":{"fame":1},"ok":["התשובה המצחיקה שלך הפכה את הכול. אנשים מצטטים אותך.","Your funny reply turned it around. People are quoting you."],"okFx":{"fans":3},"fail":["זה רק החמיר. המועדון ביקש ממך לעצור.","It only got worse. The club asked you to stop."],"failFx":{"trust":-3,"fans":-2}}]},{"id":"viral_skill","min":16,"max":30,"when":{"after":"key","rating>=":8},"cd":3,"flag":"viral","t":["הכדרור שלך מאתמול הפך לוויראלי. מותגים כבר שולחים הודעות.","Your dribble from yesterday went viral. Brands are already messaging."],"o":[{"t":["ללכת על זה: קמפיין קטן","Lean in: a small campaign"],"p":1,"k":"campaign","fx":{"money":0.04,"xpMul":0.97},"ok":["כסף טוב. קצת פחות זמן לאימונים.","Good money. A little less time for training."]},{"t":["להודות ולהמשיך הלאה","Say thanks and move on"],"p":1,"k":"humble","fx":{"trust":2},"ok":["המאמן: \"יפה. עכשיו שוב באימון.\"","The coach: \"Nice. Now do it again in training.\""]}]},{"id":"snub","min":19,"max":33,"when":{"event":"squadNamed","called":false,"rating>=":70},"cd":2,"flag":"snubbed","t":["הסגל לנבחרת פורסם. השם שלך לא שם.","The national squad is out. Your name isn't on it."],"o":[{"t":["להתקשר למאמן הנבחרת","Call the national coach"],"p":0.4,"k":"call","fx":{},"ok":["\"תמשיך ככה, אתה הבא בתור.\" עכשיו אתה יודע.","\"Keep this up, you're next in line.\" Now you know."],"okFx":{"natTrust":3},"fail":["הוא לא ענה. ואז הדליף שהתקשרת.","He didn't answer. Then he leaked that you called."],"failFx":{"natTrust":-2}},{"t":["להפוך את זה לדלק","Turn it into fuel"],"p":1,"k":"fuel","fx":{"xpMul":1.04},"ok":["כל אימון השבוע נראה כמו גמר.","Every session this week looks like a final."]},{"t":["להתלונן בראיון","Complain in an interview"],"p":1,"k":"complain","fx":{"fame":1,"natTrust":-3},"ok":["כותרת גדולה. דלת הנבחרת נסגרה עוד קצת.","A big headline. The national-team door closes a little more."]}]},{"id":"clique","min":18,"max":36,"when":{"seasonsAtClub>=":1},"cd":4,"flag":"clique","t":["חדר ההלבשה התפצל: הוותיקים מצד אחד, הצעירים מצד שני. כולם מחכים לראות איפה תשב.","The dressing room has split: veterans on one side, youngsters on the other. Everyone waits to see where you sit."],"o":[{"t":["עם הוותיקים","With the veterans"],"p":1,"k":"vets","fx":{"trust":3},"ok":["הקפטן מהנהן אליך. אתה בפנים.","The captain nods at you. You're in."]},{"t":["עם הצעירים","With the youngsters"],"p":1,"k":"kids","fx":{"chem":5},"ok":["הם רואים בך מנהיג. הוותיקים פחות.","They see you as a leader. The veterans, less so."]},{"t":["לחבר בין שני הצדדים","Bring both sides together"],"p":0.4,"k":"bridge","fx":{},"ok":["ארוחה משותפת, ואז ניצחון. המאמן שם לב.","A team dinner, then a win. The coach notices."],"okFx":{"trust":6},"fail":["שני הצדדים חושבים שאתה עם השני.","Both sides think you're with the other."],"failFx":{"trust":-2}}]},{"id":"mentor_retires","min":19,"max":30,"when":{"mentorFlag":true,"mentorRetiring":true},"once":true,"flag":"mentorGone","t":["{mentor} פורש. אחרי המשחק האחרון הוא נותן לך את הנעליים שלו.","{mentor} is retiring. After his last game he hands you his boots."],"o":[{"t":["נאום קצר בחדר ההלבשה","A short speech in the dressing room"],"p":0.8,"k":"speech","fx":{},"ok":["כולם עמדו. גם הוא בכה.","Everyone stood. He cried too."],"okFx":{"trust":3},"fail":["נתקעת באמצע. הוא חיבק אותך בכל זאת.","You froze halfway. He hugged you anyway."],"failFx":{}},{"t":["תודה שקטה, בארבע עיניים","A quiet thank-you, just the two of you"],"p":1,"k":"quiet","fx":{},"ok":["\"עכשיו תורך ללמד מישהו.\"","\"Now it's your turn to teach someone.\""]}]},{"id":"comparison","min":17,"max":23,"when":{"rating>=":72,"seasonsAtClub>=":1},"once":true,"flag":"compared","t":["העיתונים משווים אותך לאגדה של המועדון. \"הדבר הכי קרוב שראינו מאז.\"","The papers compare you to the club's legend. \"The closest thing we've seen since.\""],"o":[{"t":["\"זה כבוד ענק.\"","\"That's a huge honour.\""],"p":1,"k":"embrace","fx":{"fame":1,"pressure":1},"ok":["הקהל אוהב את זה. הציפיות קפצו.","The crowd loves it. Expectations just jumped."]},{"t":["\"אני רוצה להיות הראשון של עצמי.\"","\"I want to be the first me, not the next him.\""],"p":1,"k":"own","fx":{"fans":1},"ok":["ציטוט שחוזר על עצמו בכל מקום.","A quote that's suddenly everywhere."]}]},{"id":"free_talks","min":20,"max":35,"when":{"contractMonthsLeft<=":6},"once":true,"flag":"freeAgentWindow","t":["נשארו שישה חודשים בחוזה. מעכשיו מותר לך לדבר עם מועדונים אחרים.","Six months left on your contract. From now on you're allowed to talk to other clubs."],"o":[{"t":["לפתוח שיחות עם כולם","Open talks with everyone"],"p":1,"k":"open","fx":{"offers":2,"trust":-4},"ok":["ההצעות מגיעות. המאמן כבר פחות סומך עליך.","The offers arrive. The coach trusts you a little less."]},{"t":["לחכות לסוף העונה","Wait for the end of the season"],"p":1,"k":"wait","fx":{},"ok":["ראש שקט, גם אם הסוכן מתעצבן.","A calm head, even if your agent is fuming."]},{"t":["לחתום עכשיו על הארכה","Sign an extension now"],"p":0.7,"k":"extend","fx":{},"ok":["הארכה לשלוש שנים. העניין סגור.","A three-year extension. Case closed."],"okFx":{"years":3,"trust":3},"fail":["ההצעה של המועדון נמוכה מדי. ממשיכים לחכות.","The club's offer is too low. Still waiting."],"failFx":{}}]},{"id":"release_clause","min":19,"max":31,"when":{"interestStrong>=":1,"window":true},"once":true,"flag":"clause","t":["{club2} מוכנה לשלם את סעיף השחרור שלך. המועדון לא יכול לעצור את זה.","{club2} are ready to pay your release clause. Your club can't stop it."],"o":[{"t":["ללכת","Go"],"p":1,"k":"go","fx":{"transfer":"club2"},"ok":["ההחלטה הכי גדולה בקריירה. ואתה לא מתחרט.","The biggest decision of your career. And you don't regret it."]},{"t":["להישאר","Stay"],"p":1,"k":"stay","fx":{"fans":3,"trust":3},"ok":["האוהדים תלו שלט ענק: \"אחד משלנו.\"","The fans hung a giant banner: \"One of our own.\""]}]},{"id":"testimonial","min":32,"max":40,"when":{"seasonsAtClub>=":8},"once":true,"flag":"testimonial","t":["המועדון מציע לך משחק הוקרה בסוף העונה.","The club offers you a testimonial at the end of the season."],"o":[{"t":["להזמין את כל החברים מהדרך","Invite everyone from the journey"],"p":1,"k":"friends","fx":{"fans":2},"ok":["{rival} הגיע. גם {partner}. ערב שלא ישכחו.","{rival} came. So did {partner}. A night to remember."]},{"t":["לתרום את ההכנסות לאקדמיה","Donate the proceeds to the academy"],"p":1,"k":"donate","fx":{"fans":3,"money":-0.01},"ok":["מגרש חדש לנוער. עם השם שלך על השער.","A new youth pitch. With your name above the gate."]}]},{"id":"coaching_course","min":30,"max":40,"when":{},"once":true,"flag":"badges","t":["מציעים לך קורס מאמנים בקיץ. ארבעה שבועות במקום חופשה.","You're offered a coaching course in the summer. Four weeks instead of a holiday."],"o":[{"t":["להירשם","Sign up"],"p":1,"k":"join","fx":{"energy":-10,"legacy":1},"ok":["חזרת עייף, אבל רואה את המשחק אחרת.","You come back tired, but you see the game differently."]},{"t":["לנוח עם המשפחה","Rest with the family"],"p":1,"k":"rest","fx":{"energy":10},"ok":["הגוף מודה לך.","Your body thanks you."]}]},{"id":"rush_back","min":17,"max":38,"when":{"returningFromWeeks>=":4,"nextKeySoon":true},"cd":2,"flag":"rushedBack","t":["הרופא רוצה עוד שבוע של מנוחה. המאמן רוצה אותך במשחק הגדול.","The doctor wants another week of rest. The coach wants you for the big game."],"o":[{"t":["לשחק","Play"],"p":0.75,"k":"play","fx":{"trust":3},"ok":["החזקת. המאמן לא ישכח.","You held up. The coach won't forget."],"fail":["הפציעה חזרה, וקשה יותר. (פציעה חוזרת נמשכת יותר זמן.)","The injury came back, worse. (Re-injuries last longer.)"],"failFx":{"injury":"recurrence"}},{"t":["להקשיב לרופא","Listen to the doctor"],"p":1,"k":"rest","fx":{"trust":-2},"ok":["עוד שבוע בצד. אבל אתה חוזר בריא.","Another week out. But you come back healthy."]}]},{"id":"agent_push","min":19,"max":34,"when":{"agent":true,"interest>=":1},"cd":3,"flag":"agentPush","t":["הסוכן לוחץ: \"יש מועדון שמשלם כפול. תחתום ותודה לי אחר כך.\"","Your agent is pushing: \"There's a club paying double. Sign and thank me later.\""],"o":[{"t":["לסמוך עליו","Trust him"],"p":1,"k":"trust","fx":{"wageNext":1.4,"fans":-2},"ok":["חוזה עשיר. השאלה אם זה המקום הנכון.","A rich contract. Whether it's the right place is another question."]},{"t":["להגיד לו שאתה מחליט על הכדורגל","Tell him you decide on the football"],"p":1,"k":"boss","fx":{},"ok":["הוא נרגע. בפעם הבאה הוא שואל קודם.","He calms down. Next time he asks first."]},{"t":["להיפרד ממנו","Part ways with him"],"p":1,"k":"fire","fx":{"agent":0,"offers":-1},"ok":["שקט מהטלפון. גם פחות הצעות.","A quiet phone. Fewer offers too."]}]},{"id":"fan_letter","min":18,"max":40,"when":{"fans>=":60},"once":true,"flag":"kidLetter","t":["ילד בן 9 שלח לך מכתב: \"כשאהיה גדול אני רוצה להיות כמוך.\"","A 9-year-old sent you a letter: \"When I grow up I want to be like you.\""],"o":[{"t":["לבקר בבית הספר שלו","Visit his school"],"p":1,"k":"visit","fx":{"fans":3,"energy":-4},"ok":["כל הכיתה בחולצות שלך. הוא לא הפסיק לחייך.","The whole class in your shirt. He didn't stop smiling."]},{"t":["לשלוח חולצה חתומה","Send a signed shirt"],"p":1,"k":"shirt","fx":{"fans":1},"ok":["אמא שלו שלחה תמונה. הוא ישן איתה.","His mum sent a photo. He sleeps in it."]}]},{"id":"old_coach_watch","min":18,"max":30,"when":{"seasonsSinceAcademy>=":2},"once":true,"flag":"firstCoach","t":["מאמן הנוער הראשון שלך מגיע לצפות בך הערב.","Your first youth coach is coming to watch you tonight."],"o":[{"t":["להקדיש לו את המשחק","Dedicate the game to him"],"p":0.6,"k":"dedicate","fx":{},"ok":["כבשת או בישלת, והצבעת אליו ביציע.","You scored or set one up, and pointed to him in the stands."],"okFx":{"form":6},"fail":["ערב שקט. אחרי המשחק הוא אמר: \"אני גאה בך בכל מקרה.\"","A quiet night. After the game he said: \"I'm proud of you anyway.\""],"failFx":{}},{"t":["להזמין אותו לחדר ההלבשה","Invite him into the dressing room"],"p":1,"k":"invite","fx":{"fans":1},"ok":["הוא סיפר לכולם איך היית בגיל 15. כולם צחקו. גם אתה.","He told everyone what you were like at 15. Everyone laughed. You too."]}]}],"partner":[{"id":"meet","when":{"chem<":25},"t":["{partner} הגיע לקבוצה. כבר באימון הראשון הוא רץ בדיוק לאן שחשבת למסור.","{partner} has joined the club. In the very first session he runs exactly where you were about to pass."],"fx":{"chem":5}},{"id":"first_combo","when":{"event":"assistTo"},"once":true,"t":["מסירה שלך, שער שלו. {partner} רץ אליך ראשון לחגוג.","Your pass, his goal. {partner} runs to you first to celebrate."],"fx":{"chem":10}},{"id":"dinner","when":{"chem>=":30},"t":["{partner} מזמין אותך לארוחת שישי עם המשפחה שלו.","{partner} invites you to a family dinner at his place."],"fx":{},"o":[{"t":["ללכת","Go"],"p":1,"fx":{"chem":8,"energy":-3}},{"t":["לנוח הביתה","Stay home and rest"],"p":1,"fx":{"energy":3}}]},{"id":"duo_name","when":{"chem>=":60,"jointGoals>=":8},"once":true,"t":["העיתונים קוראים לכם \"הצמד\". אוהדים מגיעים עם חולצות של שניכם.","The papers call you \"the duo\". Fans turn up in both your shirts."],"fx":{"fans":2}}]};
+
+/* ===== 66-story.js ===== */
+/* ===== STORY: picking a card from the bank =====
+   Every card is a storylet: a family with conditions, variants with extra conditions, a tier, a cooldown.
+   How a card is chosen (addons/research/career-narrative.md): eligible families → highest tier → most specific
+   → the family seen least recently → seeded random. A family never repeats an exact variant within its cooldown
+   (default 3 seasons) and uses the whole pool before any repeat. Unknown condition keys mean "the engine does not
+   track this yet" and simply make the card ineligible. Every text slot is filled from the save; a variant with a slot
+   the engine cannot fill is skipped. Choices write flags that later cards read. No DOM here: the sim runs all of it. */
+
+function storyMem(car){return car.story||(car.story={used:{},fam:{},flags:{},later:null});}
+function storyFlag(st,f){if(f&&st.career)storyMem(st.career).flags[f]=st.career.year;}
+function cmpKey(k){var m=/^(.*?)(>=|<=|<|>)$/.exec(k);return m?[m[1],m[2]]:[k,''];}
+function condOK(when,ctx){
+  if(!when)return true;
+  for(var k in when){
+    var v=when[k],p=cmpKey(k),b=p[0],op=p[1],x;
+    if(b==='once')continue;
+    if(b==='flag'){if(!(ctx.flags&&ctx.flags[v]))return false;continue;}
+    x=ctx[b];
+    if(x===undefined||x===null)return false;
+    if(op==='>='){if(!(x>=v))return false;}
+    else if(op==='<='){if(!(x<=v))return false;}
+    else if(op==='<'){if(!(x<v))return false;}
+    else if(op==='>'){if(!(x>v))return false;}
+    else if(Object.prototype.toString.call(v)==='[object Array]'){if(v.indexOf(x)<0)return false;}
+    else if(typeof v==='boolean'){if(!!x!==v)return false;}
+    else if(x!==v)return false;
+  }
+  return true;
+}
+function condN(when){var n=0;for(var k in when)if(k!=='once')n++;return n;}
+var SLOT_RE=/\{([a-zA-Z0-9]+)\}/g;
+function storyFill(s,ctx,lang){
+  var sl=ctx.slots||{};
+  return String(s).replace(SLOT_RE,function(m,k){
+    var v=sl[k]!==undefined?sl[k]:ctx[k];
+    if(v==null||typeof v==='boolean')return m;
+    if(typeof v==='object')return v[lang]!=null?String(v[lang]):m;
+    return String(v);
+  });
+}
+function storyText(pair,ctx){
+  if(!pair||typeof pair[0]!=='string'||typeof pair[1]!=='string')return null;
+  var he=storyFill(pair[0],ctx,'he'),en=storyFill(pair[1],ctx,'en');
+  SLOT_RE.lastIndex=0;if(SLOT_RE.test(he))return null;SLOT_RE.lastIndex=0;if(SLOT_RE.test(en))return null;
+  return {he:he,en:en};
+}
+function cmpScore(a,b){for(var i=0;i<a.length;i++){if(a[i]<b[i])return -1;if(a[i]>b[i])return 1;}return 0;}
+/* one card from one section. Returns {it,j,txt,persona} or null.
+   opts.event: only families written for that event · opts.afterKey: only families without an event or a 'before'
+   · opts.before: only 'before a match' families. A family whose variants are all inside their cooldown stays silent. */
+function storyPick(st,sec,ctx,salt,opts){
+  var car=st.career,items=BANK[sec];if(!car||!items)return null;
+  opts=opts||{};
+  var mem=storyMem(car),year=car.year,r=rngFor(st.seed+':story:'+sec+':'+year+':'+(salt||'')),best=null,bs=null,dry=false;
+  for(var i=0;i<items.length;i++){
+    var it=items[i],w=it.when||{};
+    if(opts.event&&w.event!==opts.event)continue;
+    if(opts.afterKey&&(w.event||w.before))continue;
+    if(opts.before&&!w.before)continue;
+    if(opts.season&&(w.event||w.before||w.after))continue;
+    if(!condOK(it.when,ctx))continue;
+    if(it.once&&mem.used[sec+':'+it.id+':once'])continue;
+    var cd=it.cd!=null?it.cd:3,vars=it.v||[it.t||it.q],cands=[],fillable=0,fitted=0;
+    for(var j=0;j<vars.length;j++){
+      var v=vars[j],persona=null,pair=v;
+      if(typeof v[0]==='string'&&typeof v[1]==='string'&&!/[א-ת]/.test(v[0])&&/[א-ת]/.test(v[1])){persona=v[0];pair=v.slice(1);}
+      var cond=pair[2]&&typeof pair[2]==='object'?pair[2]:null;
+      if(cond){
+        if(cond.once==='season'&&mem.used[sec+':'+it.id+'#'+j+':s']===year)continue;
+        if(cond.once===true&&mem.used[sec+':'+it.id+'#'+j+':once'])continue;
+        if(!condOK(cond,ctx))continue;
+      }
+      fitted++;
+      var txt=storyText(pair,ctx);if(!txt)continue;
+      var key=sec+':'+it.id+'#'+j,last=mem.used[key];
+      var cand={it:it,j:j,txt:txt,persona:persona,spec:condN(it.when)+(cond?condN(cond):0),key:key,cond:cond};
+      fillable++;
+      if(last!=null&&year-last<cd)continue;
+      cands.push(cand);
+    }
+    if(!fillable){if(fitted){dry=true;if(st._storyLog)st._storyLog.push({sec:sec,fam:it.id,dry:true,year:year});}continue;}
+    if(!cands.length)continue;
+    var c=cands[Math.floor(r()*cands.length)];
+    var sc=[it.tier!=null?it.tier:3,-c.spec,mem.fam[sec+':'+it.id]||0,r()];
+    if(!best||cmpScore(sc,bs)<0){best=c;bs=sc;}
+  }
+  if(!best)return null;
+  mem.used[best.key]=year;mem.fam[sec+':'+best.it.id]=year;
+  if(best.it.once)mem.used[sec+':'+best.it.id+':once']=year;
+  if(best.cond&&best.cond.once==='season')mem.used[best.key+':s']=year;
+  if(best.cond&&best.cond.once===true)mem.used[best.key+':once']=year;
+  if(st._storyLog)st._storyLog.push({sec:sec,fam:best.it.id,j:best.j,year:year,cd:best.it.cd!=null?best.it.cd:3});
+  return best;
+}
+function personaLine(p,lang){
+  var P=null;for(var i=0;i<BANK.personas.length;i++)if(BANK.personas[i].id===p.persona)P=BANK.personas[i];
+  var body=p.txt[lang];
+  return P?P.ic+' '+P[lang]+': '+body:body;
+}
+
+/* ---------- the context: everything a condition or a slot can ask for, from the save ---------- */
+function storyCtx(st,ex){
+  var car=st.career,S=car.season,cl=myClub(st),C=C_BY_CODE[car.cc],T=car.totals;
+  var ctx={flags:storyMem(car).flags,slots:{}};
+  ctx.name=car.name;ctx.age=car.age;ctx.pos=POS_GROUP[car.pd]||car.pos;ctx.pd=car.pd;
+  ctx.rating=car.rating;ctx.trust=car.trust;ctx.fame=car.fame||0;ctx.fans=car.fame||0;ctx.chem=car.bond||0;
+  ctx.goals=T.goals;ctx.apps=T.apps;ctx.seasons=T.seasons;ctx.caps=T.caps;
+  ctx.season=seasonNo(car);ctx.academy=!!(S&&S.academy);
+  var senior=0;car.history.forEach(function(h){if(!h.ac)senior++;});
+  ctx.seniorSeason=ctx.academy?0:senior+1;ctx.seasonsSinceAcademy=Math.max(0,ctx.seniorSeason-1);
+  if(cl){
+    ctx.club={he:clubName(cl,'he'),en:clubName(cl,'en')};ctx.city={he:cl.cityHe||'',en:cl.cityEn||''};
+    ctx.clubRep=cl.st;
+    var cs=car.clubStats[cl.id]||{seasons:0};
+    ctx.seasonsAtClub=cs.seasons||0;ctx.firstSeasonAtClub=!cs.seasons;
+    ctx.monthsAtClub=(cs.seasons||0)*12+(S&&S.fix.length?Math.round(12*S.fi/S.fix.length):0);
+  }
+  if(C)ctx.country={he:countryName(C,'he'),en:countryName(C,'en')};
+  ctx.abroad=car.cc!==(car.nat||car.cc);
+  if(ctx.abroad){var foreign={};careerClubs(car).forEach(function(id){var c2=clubById(id);if(c2&&c2.cc!==(car.nat||car.cc))foreign[c2.cc]=1;});ctx.firstAbroad=Object.keys(foreign).length<=1;}
+  ctx.captain=!!car.captain;ctx.firstSeasonAsCaptain=!!car.captain&&car.captainYear===car.year;
+  if(car.contract){ctx.contractYearsLeft=car.contract.yrs;ctx.contractMonthsLeft=car.contract.yrs*12-(S&&S.fix.length?Math.round(12*S.fi/S.fix.length):0);
+    ctx.years=car.contract.yrs;ctx.untilYear=car.year+car.contract.yrs;}
+  ctx.agent=!!car.agent;ctx.farewell=!!car.farewell;ctx.onLoan=!!car.loanContract;
+  ctx.rival=!!car.rival;if(car.rival)ctx.slots.rival={he:car.rival.he,en:car.rival.en};
+  var pn=partnerOf(st);ctx.slots.partner={he:pn.he,en:pn.en};
+  var mn=personName(st.seed+':mentor:'+(car.mentorYear||car.year),car.cc);ctx.slots.mentor={he:mn.he,en:mn.en};
+  ctx.mentorFlag=car.evDone.indexOf('mentor')>=0;ctx.mentorRetiring=ctx.mentorFlag&&car.age>=23;
+  ctx.homesickFlag=car.evDone.indexOf('homesick')>=0;
+  ctx.injuryWeeksLastSeason=car.lastInjW||0;
+  ctx.drought=car.lastTitleYear?car.year-car.lastTitleYear:T.seasons;
+  if(S){
+    var st_=S.stats,ap=st_.apps;
+    ctx.appsS=ap;ctx.gs=st_.goals;ctx.as=st_.assists;ctx.css=st_.cleanSheets;ctx.avgS=ap?Math.round(st_.sumScore/ap*10)/10:0;ctx.avg=ctx.avgS;
+    ctx.interest=S.interest?S.interest.clubs.length:0;ctx.interestStrong=S.interest&&S.interest.clubs.length>=2?1:0;
+    var n=S.fix.length||1,frac=S.fi/n;
+    ctx.window=(frac>=0.42&&frac<=0.6)||frac>=0.88;
+    if(!S.academy){
+      var tops=clubsOfTier(car.cc,car.tier).slice().sort(function(a,b){return b.st-a.st;}),rank=cl?tops.indexOf(cl):-1;
+      ctx.tierRank=rank+1;ctx.tableZone=rank<0?'mid':rank<=2?'top':rank>=tops.length-3?'bottom':'mid';
+      var other=tops.filter(function(x){return x.id!==car.clubId;})[0];if(other)ctx.slots.rivalClub={he:clubName(other,'he'),en:clubName(other,'en')};
+      var pos=myLeaguePos(st);if(pos>0){ctx.slots.pos=pos;ctx.slots.posOrd=ordinalEn(pos);}
+      var L=leagueRounds(st,car.cc,car.tier,S.year);ctx.roundsLeft=Math.max(0,L.rounds.length-S.lgRound);
+      ctx.slots.league=leagueName(car.cc,car.tier);ctx.slots.cup=cupName(car.cc);
+      var bl=0,bi=S.results.length-1;if(bi>=0&&!S.results[bi].skip)bi--;for(;bi>=0&&S.results[bi].skip==='bench';bi--)bl++;ctx.benchedLast=bl;
+      ctx.benched=ap<Math.max(3,Math.round(S.lgRound*0.4));
+      ctx.called=!!(S.nat&&S.nat.called);
+    }
+    if(S.interest&&S.interest.clubs.length){var c2=clubById(S.interest.clubs[0].cid);if(c2)setClub2(ctx,c2);}
+    if(S.chapter&&S.chapter.goal)ctx.slots.target=S.chapter.goal.need;
+    ctx.nextKeySoon=false;for(var k=S.fi;k<Math.min(S.fix.length,S.fi+3);k++){if(fixtureKey(st,S.fix[k])){ctx.nextKeySoon=true;break;}}
+    if(car.returned&&car.returned.year===car.year&&S.fi-car.returned.fi<=1)ctx.returningFromWeeks=car.returned.w*2;
+  }
+  if(ex)for(var key in ex){if(key==='slots'){for(var s2 in ex.slots)ctx.slots[s2]=ex.slots[s2];}else ctx[key]=ex[key];}
+  return ctx;
+}
+function setClub2(ctx,c2){
+  ctx.slots.club2={he:clubName(c2,'he'),en:clubName(c2,'en')};ctx.slots.city2={he:c2.cityHe||'',en:c2.cityEn||''};
+  var C2=C_BY_CODE[c2.cc];if(C2)ctx.slots.country2={he:countryName(C2,'he'),en:countryName(C2,'en')};
+  ctx.slots.league2=leagueName(c2.cc,effTier(c2));
+}
+function ordinalEn(n){var s=['th','st','nd','rd'],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0]);}
+/* what a match adds to the context */
+function matchCtx(st,M,key){
+  var car=st.career,S=car.season,my=M.my||{},ex={after:'key',slots:{}};
+  key=key||M.key||(M.f&&M.f.key)||null;
+  ex.result=M.win?'W':M.draw?'D':'L';ex.g=my.g||0;ex.a=my.a||0;ex.sv=my.sv||0;ex.cs=!!(my.cs&&M.starter);
+  ex['g+a']=ex.g+ex.a;ex.rating=Math.round((my.score||0)*10)/10;ex.key=key;ex.sub=!M.starter;ex.min=M.onMin||0;
+  var mine=M.home?M.score[0]:M.score[1],opp=M.home?M.score[1]:M.score[0];
+  ex.margin=mine-opp;ex.slots.score=mine+'–'+opp;
+  ex.ownMistake=!!(M.moments&&M.moments.some(function(mo){return mo.out&&mo.out.conceded;}));
+  ex.stronger=(M.oppSt||0)>(M.myStBase||0)+4;ex.knockout=M.f&&(M.f.t==='cup'||M.f.t==='cont');
+  ex.firstDerby=key==='derby'&&!(car.story&&car.story.flags.derbyPlayed);
+  if(M.oppName)ex.slots.opp={he:tl_(M.oppName,'he'),en:tl_(M.oppName,'en')};
+  if(key&&KEY_LABEL[key])ex.slots.label={he:KEY_LABEL[key].he,en:KEY_LABEL[key].en};
+  var ws=0;for(var i=S.results.length-1;i>=0&&S.results[i].w;i--)ws++;ex.winStreak=ws;
+  ex.mood=M.win?'up':M.draw?'flat':'down';
+  return ex;
+}
+function tl_(o,lang){return o?(o[lang]!=null?o[lang]:(o.en||o.he||'')):'';}
+
+/* ---------- effects: the bank's vocabulary onto the save (unknown keys are ignored) ---------- */
+function storyFx(st,fx){
+  var car=st.career,out={};if(!fx||!car)return out;
+  function add(k,v){out[k]=(out[k]||0)+v;}
+  for(var k in fx){
+    var v=fx[k];
+    if(k==='trust'){car.trust=clamp(car.trust+v,0,100);add('trust',v);}
+    else if(k==='fame'){car.fame=clamp((car.fame||0)+v,0,100);add('fame',v);}
+    else if(k==='fans'){var f=Math.round(v*0.7)||(v>0?1:-1);car.fame=clamp((car.fame||0)+f,0,100);add('fame',f);}
+    else if(k==='energy'){car.energy=clamp(car.energy+v,0,100);add('energy',v);}
+    else if(k==='chem'){car.bond=clamp((car.bond||0)+v,0,100);add('bond',v);}
+    else if(k==='form'){car.form=clamp((car.form||60)+v,20,99);}
+    else if(k==='xpMul'){car.xpMul=(car.xpMul||1)*v;car.xpMulYear=car.year;}
+    else if(k==='money'){var wage=car.contract?car.contract.wage*12:60000;car.money=(car.money||0)+Math.round(wage*v);out.money=Math.round(wage*v);}
+    else if(k==='years'&&car.contract){car.contract.yrs+=v;car.contract.wage=Math.round(car.contract.wage*1.05);}
+    else if(k==='injury'){if(!car.injury)car.injury={w:2,w0:2,type:0};}
+    else if(k==='transfer'){var S=car.season;if(S&&S.interest&&S.interest.clubs.length)car.prejoin=S.interest.clubs[0].cid;}
+  }
+  return out;
+}
+/* chips for a fx object before it is applied (what the player sees on the option) */
+function storyFxView(fx){
+  var o={};if(!fx)return o;
+  for(var k in fx){var v=fx[k];if(k==='trust'||k==='fame'||k==='energy')o[k]=(o[k]||0)+v;else if(k==='fans')o.fame=(o.fame||0)+(Math.round(v*0.7)||(v>0?1:-1));else if(k==='chem')o.bond=(o.bond||0)+v;}
+  return o;
+}
+
+/* ---------- the hooks the engine calls ---------- */
+/* after a key match the player played: a headline, a fan post, sometimes the coach; at most three cards */
+function storyAfterKey(st,M){
+  var car=st.career,S=car.season,key=M.key||(M.f&&M.f.key)||null;
+  if(!key||!M.played||!M.my||M.daily||M.info.kind==='youth')return;
+  var ctx=storyCtx(st,matchCtx(st,M,key)),fi=S.fi,AK={afterKey:true};
+  var h=storyPick(st,'headlines',ctx,'h'+fi,AK);
+  if(h)pushNews(st,'story',h.txt);
+  else pushNews(st,'keymatch',{win:M.win,draw:M.draw,g:M.my.g,sc:M.my.score,label:KEY_LABEL[key]?(LANG==='he'?KEY_LABEL[key].he:KEY_LABEL[key].en):''});
+  if(!S.academy){
+    var f=storyPick(st,'fanPosts',ctx,'f'+fi,AK);
+    if(f)pushNews(st,'fans',{he:personaLine(f,'he'),en:personaLine(f,'en')});
+    else{var fp=fanPost(st,M,S.year+':'+fi);pushNews(st,'fans',{he:fp,en:fp});}
+    var q=storyPick(st,'coachQuotes',ctx,'c'+fi,AK);
+    if(q)pushNews(st,'coach',{q:q.txt});
+  }
+  if(key==='derby')storyFlag(st,'derbyPlayed');
+  storyLater(st,M);
+  storyReactive(st,ctx);
+  storyPartnerAfter(st,M);
+}
+/* a promise made to the press before the match comes due */
+function storyLater(st,M){
+  var mem=storyMem(st.career),L=mem.later;if(!L)return;
+  mem.later=null;
+  var res=M.win?'W':M.draw?'D':'L';
+  if(L[res])storyFx(st,L[res]);
+}
+/* events that react to what just happened (only when no event is pending) */
+function storyReactive(st,ctx){
+  var S=st.career.season;
+  if((S.ev&&!S.ev.done)||(S.bankEvN||0)>=1)return;
+  var ev=bankEventPick(st,ctx,true);
+  if(ev){S.ev={id:ev.id,at:S.fi,done:false,bank:true};S.bankEvN=(S.bankEvN||0)+1;}
+}
+function bankEventEligible(st,e,ctx){
+  var car=st.career,mem=storyMem(car);
+  if(car.age<e.min||car.age>e.max)return false;
+  if(e.once&&car.evDone.indexOf(e.id)>=0)return false;
+  var last=mem.fam['events:'+e.id];if(last!=null&&car.year-last<(e.cd!=null?e.cd:2))return false;
+  if(!condOK(e.when,ctx))return false;
+  if(!storyText(e.t,ctx))return false;
+  for(var i=0;i<e.o.length;i++){if(!storyText(e.o[i].t,ctx))return false;if(e.o[i].ok&&!storyText(e.o[i].ok,ctx))return false;if(e.o[i].fail&&!storyText(e.o[i].fail,ctx))return false;}
+  return true;
+}
+function bankEventReactiveKind(e){return !!(e.when.after||e.when.event||e.when['returningFromWeeks>=']||e.when.called!==undefined);}
+function bankEventPick(st,ctx,reactive){
+  var car=st.career,pool=[],slow=[];
+  if(car.season.academy||seasonNo(car)<3)return null;
+  BANK.events.forEach(function(e){if(!bankEventEligible(st,e,ctx))return;if(bankEventReactiveKind(e)===!!reactive)pool.push(e);else if(reactive)slow.push(e);});
+  var r=rngFor(st.seed+':bev:'+car.year+':'+car.season.fi+':'+(reactive?'r':'s'));
+  // after a big match: what it reacted to first; otherwise, sometimes, a slow-burning card whose moment has come (a contract clause, a language, a rumour)
+  if(pool.length&&(!reactive||r()<0.55))return pool[Math.floor(r()*pool.length)];
+  if(reactive&&slow.length&&r()<0.3)return slow[Math.floor(r()*slow.length)];
+  return null;
+}
+function bankEventById(id){for(var i=0;i<BANK.events.length;i++)if(BANK.events[i].id===id)return BANK.events[i];return null;}
+/* the card text and options of a bank event, filled */
+function bankEventView(st,e){
+  var ctx=storyCtx(st),txt=storyText(e.t,ctx)||{he:'',en:''};
+  return {e:e,bank:true,text:tl(txt),opts:e.o.map(function(o){var ot=storyText(o.t,ctx)||{he:'',en:''};return {text:tl(ot),p:o.p,k:o.k,fx:storyFxView(o.fx)};})};
+}
+function applyBankEvent(st,e,i,rngSalt){
+  var car=st.career,S=car.season,ev=S.ev,o=e.o[i]||e.o[e.o.length-1];
+  var r=rngFor(st.seed+':bevr:'+car.year+':'+e.id+':'+(rngSalt||'')),ok=r()<o.p,ctx=storyCtx(st);
+  var res={ok:ok,k:o.k,lines:[],p:o.p};
+  storyFx(st,o.fx);
+  var line=ok?(o.ok||null):(o.fail||o.ok||null);
+  if(ok&&o.okFx)storyFx(st,o.okFx);
+  if(!ok&&o.failFx)storyFx(st,o.failFx);
+  if(line){var tt=storyText(line,ctx);if(tt)res.lines.push(tt);}
+  if(!res.lines.length)res.lines.push({he:'בסדר. ממשיכים.',en:'Fine. Moving on.'});
+  ev.done=true;ev.choice=o.k;ev.ok=ok;
+  if(e.once)car.evDone.push(e.id);
+  storyMem(car).fam['events:'+e.id]=car.year;
+  if(st._storyLog)st._storyLog.push({sec:'events',fam:e.id,j:0,year:car.year,cd:e.once?99:(e.cd!=null?e.cd:2)});
+  storyFlag(st,e.flag);if(o.k)storyFlag(st,e.flag+':'+o.k);
+  pushNews(st,'event',{id:e.id,k:o.k,ok:ok});
+  return res;
+}
+/* career beats outside matches: debut, first goal, first cap, injuries, returns, rumours, transfers, titles, promotion... */
+function storyEvent(st,event,ex){
+  var car=st.career;if(!car||!car.season)return null;
+  ex=ex||{};ex.event=event;
+  var ctx=storyCtx(st,ex),salt=event+':'+car.season.fi,EV={event:event};
+  var h=storyPick(st,'headlines',ctx,salt,EV);
+  if(h)pushNews(st,'story',h.txt);
+  var f=storyPick(st,'fanPosts',ctx,'f'+salt,EV);
+  if(f)pushNews(st,'fans',{he:personaLine(f,'he'),en:personaLine(f,'en')});
+  var q=storyPick(st,'coachQuotes',ctx,'c'+salt,EV);
+  if(q)pushNews(st,'coach',{q:q.txt});
+  if(BANK.press.some(function(p){return p.when.event===event;}))storyMem(car).pressEvent={event:event,ex:ex,year:car.year};
+  storyReactive(st,ctx);
+  return h;
+}
+/* the partner: meeting him, the first combination, the duo */
+function storyPartnerAfter(st,M){
+  var car=st.career,S=car.season,mem=storyMem(car);
+  if(S.academy||!M.my)return;
+  var pk='partner'+(car.partnerN||0);
+  if(M.my.a>0&&!mem.flags[pk+':combo']){var b=partnerBeat(st,'first_combo');if(b){mem.flags[pk+':combo']=car.year;pushNews(st,'story',b.txt);storyFx(st,b.fx);}}
+  if((car.bond||0)>=60&&S.stats.assists>=8&&!mem.flags[pk+':duo']){var d=partnerBeat(st,'duo_name');if(d){mem.flags[pk+':duo']=car.year;pushNews(st,'story',d.txt);storyFx(st,d.fx);}}
+}
+function partnerBeat(st,id){
+  for(var i=0;i<BANK.partner.length;i++)if(BANK.partner[i].id===id){var b=BANK.partner[i],txt=storyText(b.t,storyCtx(st));return txt?{txt:txt,fx:b.fx}:null;}
+  return null;
+}
+/* the arc of the season: the most specific arc whose conditions hold; 'ordinary' is the fallback */
+function storyArc(st){
+  var ctx=storyCtx(st),best=null,bp=-1,r=rngFor(st.seed+':arc:'+st.career.year);
+  BANK.arcs.forEach(function(a){
+    if(!condOK(a.when,ctx))return;
+    if(!storyText(a.open,Object.assign({},ctx,{slots:Object.assign({target:1},ctx.slots)})))return;
+    var p=a.pr+r()*0.5;if(p>bp){bp=p;best=a;}
+  });
+  return best;
+}
+function arcById(id){for(var i=0;i<BANK.arcs.length;i++)if(BANK.arcs[i].id===id)return BANK.arcs[i];return null;}
+/* a line of the season's arc, filled now (slots like {opp} and {hook} arrive late) */
+function arcLine(st,part,ex){
+  var S=st.career.season,ch=S&&S.chapter;if(!ch||!ch.arc)return null;
+  var a=arcById(ch.arc);if(!a||!a[part])return null;
+  var ctx=storyCtx(st,ex);
+  if(ch.goal)ctx.slots.target=ch.goal.need;
+  if(part==='cliff'&&/\{hook\}/.test(a.cliff[0])){var hk=seasonHook(st,ctx);if(!hk)return null;ctx.slots.hook=hk;}
+  return storyText(a[part],ctx);
+}
+function seasonHook(st,ctx){
+  var pool=BANK.seasonHooks.filter(function(h){return condOK(h.when,ctx)&&storyText(h.t,ctx);});
+  if(!pool.length)return null;
+  var h=pool[hashStr(st.seed+':shook:'+st.career.year)%pool.length];
+  return storyText(h.t,ctx);
+}
+/* the pundit's line for the media event, when the bank has one for these numbers */
+function punditLine(st){
+  var p=storyPick(st,'punditLines',storyCtx(st),'pundit');
+  return p?{he:'פרשן: '+p.txt.he,en:'A pundit: '+p.txt.en}:null;
+}
+/* the coach's instruction, in his own words: the bank's phrasing for the same instruction, varied by the match */
+var INSTR_ALT={simple:['simple'],attack:['shoot','brave'],tight:['defend'],push:['feed','press'],command:['gk_brave'],calm:['gk_calm']};
+function instrText(st,M){
+  var k=M.instr;if(!k||!INSTR[k])return '';
+  var ids=INSTR_ALT[k]||[],alts=[];
+  BANK.coachInstructions.forEach(function(ci){if(ids.indexOf(ci.id)>=0)alts.push(ci.t);});
+  var car=st.career,n=alts.length+1,pick_=hashStr(st.seed+':instrt:'+(car.season?car.season.year+':'+car.season.fi:'0'))%n;
+  if(pick_===0)return tl(INSTR[k]);
+  var t2=alts[pick_-1];return (LANG==='he'?t2[0]:t2[1]).replace(/^"|"$/g,'');
+}
+/* is this the last key match of the season? (the arc's climax line is for that one) */
+function lastKeyOfSeason(st){
+  var S=st.career.season;if(!S)return false;
+  for(var k=S.fi+1;k<S.fix.length;k++)if(fixtureKey(st,S.fix[k]))return false;
+  return true;
 }
 
 /* ===== 65-predict.js ===== */
@@ -4529,10 +5021,13 @@ function suggestChallenge(st){
 }
 
 /* ---------- save / load (works in incognito too) ---------- */
-var _mem=null,_storageOK=null;
+var _mem=null,_storageOK=null,_store=null;
+/* the one door to storage: localStorage, or the portal's cloud-synced module when one is installed */
+function LS(){return _store||localStorage;}
+function useStore(obj){_store=obj||null;_storageOK=null;}
 function storageOK(){
   if(_storageOK!=null)return _storageOK;
-  try{localStorage.setItem('__t','1');localStorage.removeItem('__t');_storageOK=true;}catch(e){_storageOK=false;}
+  try{LS().setItem('__t','1');LS().removeItem('__t');_storageOK=true;}catch(e){_storageOK=false;}
   return _storageOK;
 }
 function saveGame(st){
@@ -4541,13 +5036,13 @@ function saveGame(st){
     var data=JSON.stringify(clean);
     if(data.length>900*1024)data=JSON.stringify(trimState(clean));
     _mem=data;
-    if(storageOK()){try{localStorage.setItem(SAVE_KEY,data);}catch(e){}}
+    if(storageOK()){try{LS().setItem(SAVE_KEY,data);}catch(e){}}
     return data.length;
   }catch(e){return 0;}
 }
 function loadGame(){
   var raw=null;
-  try{raw=storageOK()?localStorage.getItem(SAVE_KEY):_mem;}catch(e){raw=_mem;}
+  try{raw=storageOK()?LS().getItem(SAVE_KEY):_mem;}catch(e){raw=_mem;}
   if(!raw)raw=_mem;
   if(!raw)return null;
   try{return migrate(JSON.parse(raw));}catch(e){return null;}
@@ -4600,6 +5095,7 @@ function migrateCareer(st,v){
   c.nat=c.nat||c.cc;
   c.clubStats=c.clubStats||{};c.decl=c.decl||{n:0,ok:0,streak:0,best:0};
   c.evDone=c.evDone||[];c.news=c.news||[];c.records=c.records||[];
+  c.story=c.story||{used:{},fam:{},flags:{},later:null};
   if(!c.seed)c.seed=hashStr(st.seed+':'+c.name);
   if(v<3){
     // 3: fame grows from what you did so far; the bond with a partner starts fresh
@@ -4825,7 +5321,8 @@ var FX=(function(){
       var k=(t-t0)/dur;
       if(k>=1){el.style.transform='';return;}
       var a=amp*(1-k)*(1-k);
-      el.style.transform='translate('+((Math.random()*2-1)*a).toFixed(1)+'px,'+((Math.random()*2-1)*a).toFixed(1)+'px)';
+      // vertical only: a sideways shake widens the page's scroll area by a few px (0-overflow rule on every portal)
+      el.style.transform='translate(0,'+((Math.random()*2-1)*a).toFixed(1)+'px)';
       requestAnimationFrame(step);
     }
     requestAnimationFrame(step);
@@ -5892,43 +6389,86 @@ function drawToast(){
 }
 
 /* ---------- platform adapter: Poki / CrazyGames when present, silent standalone ----------
-   gameplayStart only on real play after the first input, never twice in a row;
-   gameplayStop on every menu and summary; audio muted during every ad. */
+   init() resolves when the SDK is ready; boot waits for it before loading the save (Poki syncs
+   localStorage after init; CrazyGames keeps the save in its Data module).
+   gameplayStart only on real play after the first input, never twice in a row; gameplayStop on every
+   menu and summary; no internal ad timer (the SDKs pace ads); input locked from the ad request until
+   it resolves; audio muted during every ad and whenever the platform asks for it. */
 var Platform={
-  playing:false,lastAd:0,
-  sdk:function(){return window.PokiSDK?'poki':(window.CrazyGames&&window.CrazyGames.SDK?'cg':null);},
-  init:function(){
+  playing:false,busy:false,ready:false,adsOff:false,kind:null,forceMute:false,
+  sdk:function(){return this.kind;},
+  detect:function(){
     try{
-      if(window.PokiSDK){PokiSDK.init().then(function(){PokiSDK.gameLoadingFinished();}).catch(function(){});}
-      else if(window.CrazyGames&&CrazyGames.SDK&&CrazyGames.SDK.init){CrazyGames.SDK.init().catch(function(){});}
+      if(window.PokiSDK)return 'poki';
+      if(window.CrazyGames&&window.CrazyGames.SDK){return window.CrazyGames.SDK.environment==='disabled'?null:'cg';}
     }catch(e){}
+    return null;
   },
+  init:function(){
+    var self=this,p=null;
+    this.kind=this.detect();
+    try{
+      if(this.kind==='poki'){
+        p=PokiSDK.init().then(function(){self.ready=true;try{PokiSDK.gameLoadingFinished();}catch(e){}},function(){self.ready=true;});
+      }else if(this.kind==='cg'){
+        p=CrazyGames.SDK.init().then(function(){
+          self.ready=true;
+          try{var S=CrazyGames.SDK;if(S.data&&S.data.getItem)useStore(S.data);
+            if(S.game&&S.game.settings&&S.game.settings.muteAudio){self.forceMute=true;AU.mute(true);}}catch(e){}
+        },function(){self.kind=null;self.ready=true;});
+      }
+    }catch(e){this.kind=null;p=null;}
+    if(!p){this.ready=true;return Promise.resolve();}
+    return new Promise(function(res){
+      var done=false,fin=function(){if(done)return;done=true;res();};
+      p.then(fin,fin);
+      setTimeout(function(){if(!self.ready){self.kind=null;self.ready=true;}fin();},4000);
+    });
+  },
+  /* the platform's language ('' when it has none); English is the default on portals */
+  language:function(){
+    try{
+      if(this.kind==='poki'&&PokiSDK.getLanguage)return String(PokiSDK.getLanguage()||'');
+      if(this.kind==='cg'){var u=CrazyGames.SDK.user;return String((u&&u.systemInfo&&u.systemInfo.locale)||'');}
+    }catch(e){}
+    return '';
+  },
+  live:function(){return !!this.kind&&this.ready;},
   gameplayStart:function(){
-    if(this.playing)return;this.playing=true;
-    try{if(window.PokiSDK)PokiSDK.gameplayStart();else if(window.CrazyGames&&CrazyGames.SDK)CrazyGames.SDK.game.gameplayStart();}catch(e){}
+    if(this.playing||this.busy)return;this.playing=true;
+    if(!this.live())return;
+    try{if(this.kind==='poki')PokiSDK.gameplayStart();else CrazyGames.SDK.game.gameplayStart();}catch(e){}
   },
   gameplayStop:function(){
     if(!this.playing)return;this.playing=false;
-    try{if(window.PokiSDK)PokiSDK.gameplayStop();else if(window.CrazyGames&&CrazyGames.SDK)CrazyGames.SDK.game.gameplayStop();}catch(e){}
+    if(!this.live())return;
+    try{if(this.kind==='poki')PokiSDK.gameplayStop();else CrazyGames.SDK.game.gameplayStop();}catch(e){}
   },
-  hasAds:function(){return !!this.sdk();},
+  hasAds:function(){return this.live()&&!this.adsOff;},
+  unmute:function(){if(!this.busy&&!this.forceMute)AU.mute(false);},
+  lock:function(on){this.busy=!!on;try{document.body.classList.toggle('adlock',!!on);}catch(e){}},
+  noteError:function(err){var c=err&&err.code;if(c==='adsDisabledBasicLaunch'||c==='adblock')this.adsOff=true;},
   commercialBreak:function(cb){
-    var self=this,done=function(){AU.mute(false);cb&&cb();};
-    if(!this.sdk()||Date.now()-this.lastAd<180000){cb&&cb();return;}
-    this.lastAd=Date.now();this.gameplayStop();
+    var self=this;
+    if(this.busy)return;
+    if(!this.hasAds()){cb&&cb();return;}
+    var done=function(){self.lock(false);self.unmute();cb&&cb();};
+    this.gameplayStop();this.lock(true);
     try{
-      if(window.PokiSDK){PokiSDK.commercialBreak(function(){AU.mute(true);}).then(done,done);return;}
-      CrazyGames.SDK.ad.requestAd('midgame',{adStarted:function(){AU.mute(true);},adFinished:done,adError:done});return;
+      if(this.kind==='poki'){PokiSDK.commercialBreak(function(){AU.mute(true);}).then(done,done);return;}
+      CrazyGames.SDK.ad.requestAd('midgame',{adStarted:function(){AU.mute(true);},adFinished:done,adError:function(e){self.noteError(e);done();}});return;
     }catch(e){}
     done();
   },
   rewardedBreak:function(cb){
-    var done=function(ok){AU.mute(false);cb&&cb(!!ok);};
-    if(!this.sdk()){cb&&cb(false);return;}
-    this.gameplayStop();
+    var self=this;
+    if(this.busy)return;
+    if(!this.hasAds()){cb&&cb(false);return;}
+    var done=function(ok){self.lock(false);self.unmute();cb&&cb(!!ok);};
+    this.gameplayStop();this.lock(true);
     try{
-      if(window.PokiSDK){PokiSDK.rewardedBreak({size:'small',onStart:function(){AU.mute(true);}}).then(done,function(){done(false);});return;}
-      CrazyGames.SDK.ad.requestAd('rewarded',{adStarted:function(){AU.mute(true);},adFinished:function(){done(true);},adError:function(){done(false);}});return;
+      if(this.kind==='poki'){PokiSDK.rewardedBreak({size:'small',onStart:function(){AU.mute(true);}}).then(done,function(){done(false);});return;}
+      CrazyGames.SDK.ad.requestAd('rewarded',{adStarted:function(){AU.mute(true);},adFinished:function(){done(true);},adError:function(e){self.noteError(e);done(false);}});return;
     }catch(e){}
     done(false);
   }
@@ -6209,8 +6749,9 @@ function rivalMini(c){
 function chapterCard(c,S){
   var ch=S.chapter;if(!ch)return '';
   var p=chapterProgress(ST);if(!p)return '';
-  var th=ch.threat;
+  var th=ch.threat,al=arcLine(ST,'open');
   return '<div class="card" style="margin-top:10px"><div class="between"><b class="small">📖 '+esc(t('chapterN',{n:ch.n}))+' · '+esc(t('chapterGoal'))+'</b><span class="pill '+(p.done?'mint':'amber')+'">'+esc(p.label)+'</span></div>'+
+    (al?'<div class="sp4"></div><div class="small">'+esc(bidiNums(tl(al)))+'</div>':'')+
     '<div class="sp4"></div><div style="font-weight:800">'+CH_GOAL[ch.goal.k].ic+' '+esc(p.text)+'</div>'+
     '<div class="sp8"></div><div class="bar '+(p.done?'':'amber')+'"><i style="width:'+Math.round(p.pct*100)+'%"></i></div>'+
     (th?'<div class="sp8"></div><div class="small muted">'+CH_THREAT[th.k].ic+' '+esc(t('chapterThreat'))+': '+esc(chapterThreatText(th))+'</div>':'')+
@@ -6384,17 +6925,17 @@ function proAcademy(){
    and the clip plays out what happened. A full match: 60-120 seconds. */
 
 var COMM=[
-  {he:'{a} מחזיקים בכדור, מחפשים פתח',en:'{a} keep the ball, looking for an opening'},
+  {he:'{a} מחזיקה בכדור ומחפשת פתח',en:'{a} keep the ball, looking for an opening'},
   {he:'לחץ גבוה של {b}',en:'High press from {b}'},
-  {he:'קרן ל{a}. הגנה מסודרת',en:'Corner to {a}. Well defended'},
+  {he:'קרן ל{a}. ההגנה מרחיקה',en:'Corner to {a}. Well defended'},
   {he:'כרטיס צהוב לקשר של {b}',en:'Yellow card for {b}\'s midfielder'},
-  {he:'הקהל דוחף את {a}',en:'The crowd pushes {a} on'},
+  {he:'הקהל דוחף את {a} קדימה',en:'The crowd pushes {a} on'},
   {he:'בעיטה מרחוק של {b}. החוצה',en:'Long shot from {b}. Wide'},
-  {he:'{a} מחליפים צד במהירות',en:'{a} switch play quickly'},
+  {he:'{a} מחליפה אגף במהירות',en:'{a} switch play quickly'},
   {he:'עבירה באמצע. המשחק נעצר',en:'Foul in midfield. Play stops'},
-  {he:'{b} מנסים מתפרצת. נעצרת',en:'{b} try a counter. It is stopped'},
+  {he:'{b} יוצאת למתפרצת, שנעצרת בזמן',en:'{b} try a counter. It is stopped'},
   {he:'השוער של {b} תופס הרמה',en:'{b}\'s keeper claims a cross'},
-  {he:'המאמן של {a} צועק מהקווים',en:'{a}\'s coach shouts from the touchline'},
+  {he:'המאמן של {a} צועק מהקו',en:'{a}\'s coach shouts from the touchline'},
   {he:'משחק קשוח באמצע המגרש',en:'A tough battle in midfield'}
 ];
 var GOAL_LINE={he:'⚽ שער ל{a}!',en:'⚽ Goal for {a}!'};
@@ -6418,6 +6959,9 @@ function startKeyMatch(opts){
   var M=buildMatch(ST,f,{key:key});
   M.manual=true;
   openMatch(M,{mode:'career',key:key});
+  // one question before a big match: a promise the result will come back to
+  var pq=pressBefore(ST,f,key);
+  if(pq){V.press={q:pq,M:M,pre:true};openSheet('press');}
 }
 function openMatch(M,o){
   var m={M:M,mode:o.mode||'career',key:o.key||null,min:0,feed:[],ev:[],ei:0,phase:'pre',mom:null,declOn:!!(ST.opts.declare),
@@ -6502,9 +7046,11 @@ function preMatchHTML(){
         return '<button class="opt '+(on?'risk':'')+'" style="margin:0;'+(on?'border-color:var(--amber)':'')+'" data-a="mdecl" data-x="'+x.key+'"><span>'+x.ic+'</span><span class="grow small"><b>'+esc(declName(x.what))+'</b></span><span class="p" style="font-size:18px;min-width:0">'+pct(x.p)+'</span></button>';
       }).join('')+'</div></div><div class="sp8"></div>';
   }
-  var instr=M.instr&&INSTR[M.instr]&&!M.unavailable&&!M.unused?'<div class="card tight"><div class="tiny muted">🗣 '+esc(t('coachSays'))+'</div><div class="sp4"></div><b>'+INSTR[M.instr].ic+' "'+esc(tl(INSTR[M.instr]))+'"</b></div><div class="sp8"></div>':'';
+  var instr=M.instr&&INSTR[M.instr]&&!M.unavailable&&!M.unused?'<div class="card tight"><div class="tiny muted">🗣 '+esc(t('coachSays'))+'</div><div class="sp4"></div><b>'+INSTR[M.instr].ic+' "'+esc(instrText(ST,M))+'"</b></div><div class="sp8"></div>':'';
+  var climax=m.mode==='career'&&m.key&&lastKeyOfSeason(ST)?arcLine(ST,'climax',{slots:{opp:M.oppName?{he:tl_(M.oppName,'he'),en:tl_(M.oppName,'en')}:null,label:KEY_LABEL[m.key]?{he:KEY_LABEL[m.key].he,en:KEY_LABEL[m.key].en}:null}}):null;
+  var arcCard=climax?'<div class="card tight"><div class="small">📖 '+esc(bidiNums(tl(climax)))+'</div></div><div class="sp8"></div>':'';
   return '<div class="sp8"></div><div class="card tight between"><span>'+(M.starter?'✅':'🪑')+' '+esc(line)+'</span>'+
-      (m.key?'<span class="pill key">'+esc(keyLabel(m.key))+'</span>':'')+'</div><div class="sp8"></div>'+instr+decl+
+      (m.key?'<span class="pill key">'+esc(keyLabel(m.key))+'</span>':'')+'</div><div class="sp8"></div>'+arcCard+instr+decl+
     '<button class="btn big primary" data-a="mkick">▶ '+esc(t('kickoff'))+'</button>';
 }
 function declName(w){return {g:t('declG'),a:t('declA'),cs:t('declCS'),hi:t('declHi')}[w]||w;}
@@ -6524,7 +7070,7 @@ function instrLine(M,mo){
   if(!M.instr||!INSTR[M.instr])return '';
   var f=mo?optFx(M,mo,mo.opts[0]):null;
   var sit=f&&f.chasing?t('chasing'):(f&&f.protecting?t('protecting'):'');
-  return '<div class="instr">'+INSTR[M.instr].ic+' '+esc(tl(INSTR[M.instr]))+(sit?'<div class="tiny muted">'+esc(sit)+'</div>':'')+'</div>';
+  return '<div class="instr">'+INSTR[M.instr].ic+' '+esc(instrText(ST,M))+(sit?'<div class="tiny muted">'+esc(sit)+'</div>':'')+'</div>';
 }
 function decideHTML(){
   var m=V.match,mo=m.mom,M=m.M;
@@ -6562,7 +7108,10 @@ function ftHTML(){
   if(M.record)lines+='<div class="kv"><span>🏛 '+esc(t('brokeRecord'))+'</span><b>'+M.record.v+'</b></div>';
   if(M.injured)lines+='<div class="kv" style="color:var(--rose)"><span>🚑</span><b>'+esc(t('injured',{t:tl(INJ_TYPES[M.injured.type]),w:M.injured.w}))+'</b></div>';
   if(M.fxSum){var fs={trust:Math.round(M.fxSum.trust),fame:Math.round(M.fxSum.fame),bond:Math.round(M.fxSum.bond)};var ch=fxChips(fs);if(ch)lines+='<div class="kv"><span>'+esc(t('priceLine'))+'</span><b class="fx">'+ch+'</b></div>';}
-  var adBtn=Platform.hasAds()&&!m.adUsed;
+  // bonus XP cycle (portal builds): free on every third key match, a video on the next, nothing on the third.
+  // Never after every match, never with nothing behind it under adblock, always one ad-free way to get it.
+  var adBtn=false,freeBtn=false;
+  if(PORTAL&&!m.adUsed&&m.key){var cyc=((ST.meta.stats&&ST.meta.stats.km)||0)%3;freeBtn=cyc===1;adBtn=cyc===2&&Platform.hasAds();}
   return '<div class="sp8"></div><div class="card">'+
     '<div class="between"><b>'+esc(t('fullTime'))+'</b><span class="pill amber">'+esc(t('matchRating'))+' '+M.my.score.toFixed(1)+'</span></div>'+
     '<div class="sp8"></div><div class="row wrap">'+
@@ -6576,6 +7125,7 @@ function ftHTML(){
     (M.pay?'<div class="kv"><span>💰 '+esc(t('earned'))+'</span><b>'+fmtMoney(M.pay)+'</b></div>':'')+
   '</div><div class="sp8"></div>'+
   (adBtn?'<div class="btnrow"><button class="btn reward" data-a="madreward">'+esc(t('adDouble'))+'</button><button class="btn" data-a="mdone">'+esc(t('continueB'))+'</button></div>':
+   freeBtn?'<div class="btnrow"><button class="btn reward" data-a="mbonus">'+esc(t('freeBonus'))+'</button><button class="btn" data-a="mdone">'+esc(t('continueB'))+'</button></div>':
          '<button class="btn big primary" data-a="mdone">'+esc(t('continueB'))+'</button>');
 }
 
@@ -6739,7 +7289,7 @@ function clipEvent(k,d,mo,opt,out){
   }else if(k==='saved'||k==='miss'||k==='lost'||k==='beaten'||k==='dmiss'||k==='gmiss'){
     if(out.ok&&(k==='dmiss'||k==='gmiss')){AU.roar();return;}
     if(out.ok)return;
-    FX.miss({stage:stg,p:opt.p,text:tl({he:{saved:'הוצל',miss:'החמצה',lost:'איבוד',beaten:'עבר אותך',dmiss:'החוצה',gmiss:'החוצה'}[k],en:{saved:'Saved',miss:'Missed',lost:'Lost it',beaten:'Beaten',dmiss:'Wide',gmiss:'Wide'}[k]})});
+    FX.miss({stage:stg,p:opt.p,text:tl({he:{saved:'הוצל',miss:'החמצה',lost:'איבוד כדור',beaten:'עבר אותך',dmiss:'החוצה',gmiss:'החוצה'}[k],en:{saved:'Saved',miss:'Missed',lost:'Lost it',beaten:'Beaten',dmiss:'Wide',gmiss:'Wide'}[k]})});
     nudgeMo(-0.1);if(m.lastDecl)declToast();
   }
 }
@@ -6802,11 +7352,9 @@ function finishManual(){
   var res=applyMatch(ST,M,true);
   res.xpGain=Math.max(0,(ST.career.xp-before)+(res.ratingUp?sumNeeds(ST.career.rating,res.ratingUp):0));
   m.res=res;
+  if(m.key&&ST.meta.stats)ST.meta.stats.km=(ST.meta.stats.km||0)+1;
   if(m.mode==='tour'){var mine=M.home?M.score[0]:M.score[1],opp=M.home?M.score[1]:M.score[0];afterTournamentMatch(ST,M,mine,opp);}
   else{afterFixture(ST,M);recover(ST);}
-  if(m.key&&M.played&&M.my){var lbl=keyLabel(m.key);pushNews(ST,'keymatch',{win:M.win,draw:M.draw,g:M.my.g,sc:M.my.score,label:lbl});
-    if(!ST.career.season.academy){var fp=fanPost(ST,M,ST.career.season.year+':'+ST.career.season.fi);pushNews(ST,'fans',{he:fp,en:fp});}}
-  if(M.played&&ST.career.totals.apps===1&&M.info.kind!=='youth')pushNews(ST,'debut',{age:ST.career.age});
   track(m.key?'key_'+m.key:'match');
   save();
   updLive();setBody();
@@ -7418,12 +7966,14 @@ SHEETS.terms=function(){
     '<b>Money and points:</b> all money and points in the game are entirely virtual, with no monetary value, and cannot be bought or sold.<br><br>';
   money=he?'<b>כסף ותחזיות:</b> כל הכסף, הנקודות ומצב ההימורים במשחק וירטואליים לחלוטין, ללא כל ערך כספי. אי אפשר לקנות או למכור אותם בכסף אמיתי. המשחק אינו מעודד הימורים בכסף אמיתי. מצב ההימורים דורש אישור גיל 18+.<br><br>':
     '<b>Money and predictions:</b> all money, points and the betting mode are entirely virtual, with no monetary value. They cannot be bought or sold for real money. This game does not encourage real-money gambling. Betting mode requires confirming you are 18+.<br><br>';
+  var priv=he?'ההתקדמות נשמרת רק במכשיר שלך.':'Progress is stored only on your device.';
   return '<b>'+esc(t('terms'))+'</b><div class="sp12"></div><div class="small muted" style="line-height:1.6;-webkit-user-select:text;user-select:text">'+
-   (he?'המשחק הזה הוא בדיון. כל שמות הקבוצות, השחקנים והמפעלים מומצאים ואינם קשורים לקבוצות, למפעלים או לאנשים אמיתיים. שמות מדינות וערים משמשים לזיהוי גיאוגרפי בלבד.<br><br>':
+   (REAL?(he?'<b>עותק פרטי:</b> שמות אמיתיים לשימוש אישי בלבד. לא להעלות ולא להפיץ.<br><br>':'<b>Private copy:</b> real names for personal use only. Do not upload or share.<br><br>'):'')+
+   (REAL?'':he?'המשחק הזה הוא בדיון. כל שמות הקבוצות, השחקנים והמפעלים מומצאים ואינם קשורים לקבוצות, למפעלים או לאנשים אמיתיים. שמות מדינות וערים משמשים לזיהוי גיאוגרפי בלבד.<br><br>':
         'This game is fiction. All club, player and competition names are invented and are not connected to any real club, competition or person. Country and city names are used for geographic identification only.<br><br>')+
    money+
-   (he?'<b>פרטיות:</b> ההתקדמות נשמרת רק במכשיר שלך. אנחנו לא אוספים פרטים אישיים ואין הרשמה.'+(PORTAL?'':' בגרסת האתר נאספת סטטיסטיקת ביקורים אנונימית בלבד, וטופס הפידבק שולח רק את מה שתכתוב.')+'<br><br><b>ילדים:</b> אין צ׳אט בין שחקנים ואין רכישות בכסף אמיתי.':
-        '<b>Privacy:</b> progress is stored only on your device. We collect no personal data and there is no sign-up.'+(PORTAL?'':' The website version counts anonymous visits only, and the feedback form sends only what you type.')+'<br><br><b>Children:</b> there is no chat between players and no real-money purchases.')+
+   (he?'<b>פרטיות:</b> '+priv+' אנחנו לא אוספים פרטים אישיים ואין הרשמה.'+(PORTAL?'':' בגרסת האתר נאספת סטטיסטיקת ביקורים אנונימית בלבד, וטופס הפידבק שולח רק את מה שתכתוב.')+'<br><br><b>ילדים:</b> אין צ׳אט בין שחקנים ואין רכישות בכסף אמיתי.':
+        '<b>Privacy:</b> '+priv+' We collect no personal data and there is no sign-up.'+(PORTAL?'':' The website version counts anonymous visits only, and the feedback form sends only what you type.')+'<br><br><b>Children:</b> there is no chat between players and no real-money purchases.')+
    '</div>'+closeBtn();
 };
 SHEETS.feedback=function(){
@@ -7515,7 +8065,7 @@ function buildMomentsFor(tpl,rating,r){
   var m={type:'chance',tpl:tpl,opts:[],min:ri(r,52,84)};
   if(tpl==='cross_flank'){m.type='cross';m.text=MOMENT_TEXT.cross[0];
     m.opts.push({k:'cross',p:clamp(ap*0.85,0.08,0.4),he:'להרים לעמוד הרחוק',en:'Cross to the far post',res:'assist'});
-    m.opts.push({k:'shot',p:clamp(sp*0.5,0.06,0.3),he:'לבעוט מזווית',en:'Shoot from the angle',res:'goal'});
+    m.opts.push({k:'shot',p:clamp(sp*0.5,0.06,0.3),he:'לבעוט מזווית חדה',en:'Shoot from a tight angle',res:'goal'});
     m.opts.push({k:'cut',p:clamp(dp-0.06,0.2,0.8),he:'לחתוך פנימה',en:'Cut inside',res:'keep'});
   }else{m.text=MOMENT_TEXT.chance[0];
     m.opts.push({k:'shot',p:clamp(sp,0.1,0.6),he:'לבעוט לפינה הרחוקה',en:'Shoot to the far corner',res:'goal'});
@@ -7753,8 +8303,13 @@ var ACTIONS={
   skilltap:function(){skillTap(false);},
   mdeclt:function(){var m=V.match;m.declOn=!m.declOn;ST.opts.declare=m.declOn;setBody();FX.haptic('tap');},
   mdone:function(){matchDone();},
+  mbonus:function(){
+    var m=V.match;if(!m||m.adUsed)return;m.adUsed=true;
+    if(m.res&&m.res.xpGain){var up=addXP(ST,m.res.xpGain*0.5);if(up)FX.plusOne(up);toast('+'+Math.round(m.res.xpGain*0.5)+' XP');save();}
+    setBody();
+  },
   madreward:function(){
-    var m=V.match;m.adUsed=true;
+    var m=V.match;if(!m||m.adUsed||Platform.busy)return;m.adUsed=true;
     Platform.rewardedBreak(function(ok){
       if(ok&&m.res&&m.res.xpGain){var up=addXP(ST,m.res.xpGain*0.5);if(up)FX.plusOne(up);toast('+'+Math.round(m.res.xpGain*0.5)+' XP');save();}
       setBody();
@@ -7853,7 +8408,7 @@ var ACTIONS={
   pressans:function(x){
     var P=V.press;V.press=null;closeSheet();
     if(P&&x!=='skip'){var f=applyPress(ST,P.q,+x);if(f){var s=[];for(var k in f)if(f[k])s.push(FX_IC[k]+(f[k]>0?'+':'−')+Math.abs(f[k]));if(s.length)toast(s.join(' '));}}
-    save();postMatchFlow();
+    save();if(!(P&&P.pre))postMatchFlow();
   },
   /* sheets */
   sheet:function(x){openSheet(x);},
@@ -7889,7 +8444,7 @@ var ACTIONS={
   },
   reset:function(){
     if(!V.resetOnce){V.resetOnce=true;toast(t('resetSure'));setTimeout(function(){V.resetOnce=false;},3000);return;}
-    try{localStorage.removeItem(SAVE_KEY);}catch(e){}
+    try{LS().removeItem(SAVE_KEY);}catch(e){}
     _mem=null;
     ST=newState();ST.lang=LANG;CUR=ST;V.setup={};V.pro={step:'title'};go('pro');
   }
@@ -7915,6 +8470,7 @@ function countUp(el,to){
 /* ---------- boot ---------- */
 function bindEvents(){
   document.addEventListener('click',function(e){
+    if(Platform.busy){e.preventDefault();return;}
     AU.init();
     var el=e.target.closest?e.target.closest('[data-a]'):null;
     if(!el)return;
@@ -7935,21 +8491,29 @@ function bindEvents(){
   });
   document.addEventListener('visibilitychange',function(){
     if(document.hidden){save();if(V.match&&V.match.phase==='run'){clearTimeout(V.match.timer);V.match.paused=true;}AU.mute(true);}
-    else{AU.mute(false);if(V.match&&V.match.paused){V.match.paused=false;nextEvent();}}
+    else{Platform.unmute();if(V.match&&V.match.paused&&!Platform.busy){V.match.paused=false;nextEvent();}}
   });
+  // a suspended AudioContext resumes on any touch (portal rule); AU.init is a no-op once running
+  document.addEventListener('touchend',function(){if(AU.ready())AU.init();},{passive:true});
   window.addEventListener('pagehide',function(){try{save();}catch(e){}});
   window.addEventListener('resize',function(){if(V.view==='match'){CLIP.resize();if(V.match&&V.match.phase!=='clip'&&V.match.phase!=='decide')CLIP.idle(V.match.M);}});
   window.addEventListener('keydown',function(e){if([' ','ArrowUp','ArrowDown','PageUp','PageDown'].indexOf(e.key)>=0&&V.view==='match'&&e.target===document.body)e.preventDefault();});
 }
 function boot(){
   bindEvents();
+  // the save is read only after the platform SDK settled (cloud sync / Data module); standalone this is immediate
+  Platform.init().then(boot2,boot2);
+}
+function boot2(){
   var loaded=loadGame();
   ST=loaded||newState();
   CUR=ST;
-  if(!loaded){var nl=(navigator.language||'en').toLowerCase();ST.lang=nl.indexOf('he')===0||nl.indexOf('iw')===0?'he':'en';}
+  if(!loaded){
+    var nl=(navigator.language||'en').toLowerCase();
+    ST.lang=nl.indexOf('he')===0||nl.indexOf('iw')===0?'he':'en';
+  }
   LANG=ST.lang||'he';
   document.documentElement.lang=LANG;document.documentElement.dir=LANGS[LANG].dir;document.title=t('title');
-  Platform.init();
   var d=markDay(ST);
   if(d!=null&&d>0&&!ST.meta.days.sent['d'+d]&&[1,2,3,7,14,30].indexOf(d)>=0){ST.meta.days.sent['d'+d]=1;track('return_d'+d);}
   // a challenge link: the same seed, position, country and academy as the friend who sent it
